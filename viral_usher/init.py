@@ -1,16 +1,11 @@
+# 'init' subcommand
+
 import sys
 import json
 import re
 import argparse
 import logging
-import ncbi_helper
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Download RefSeq and GenBank genomes for a viral species.")
-    parser.add_argument("-r", "--refseq", help="RefSeq accession to use as reference/root, if known")
-    parser.add_argument("-t", "--taxonomy_id", help="NCBI Taxonomy ID of the viral species, if known")
-    parser.add_argument("-s", "--species", help="Viral species name (if Taxonomy ID is not known)")
-    return parser.parse_args()
+from . import ncbi_helper
 
 def prompt_int_choice(prompt, min_value=1, max_value=None):
     """Get an integer choice from the user, with optional min and max values.
@@ -58,8 +53,7 @@ def prompt_refseq_id(ncbi, taxid):
         print(f"No RefSeq IDs found for Taxonomy ID {taxid}.")
         sys.exit(1)
 
-def main():
-    args = parse_args()
+def handle_init(args):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     ncbi = ncbi_helper.NcbiHelper()
     if args.refseq:
@@ -85,9 +79,6 @@ def main():
         refseq_id = prompt_refseq_id(ncbi, taxid)
     assembly_id = ncbi.get_assembly_acc_for_refseq_acc(refseq_id)
     refseq_zip = ncbi.download_refseq(assembly_id, refseq_id)
-    print(f"Downloaded RefSeq genome: {refseq_zip}")
+    print(f"Downloaded RefSeq {refseq_id} (Assembly {assembly_id}) genome: {refseq_zip}")
     genbank_zip = ncbi.download_genbank(taxid)
-    print(f"Downloaded GenBank genome: {genbank_zip}")
-
-if __name__ == "__main__":
-    main()
+    print(f"Downloaded all GenBank genomes for taxid {taxid}: {genbank_zip}")
