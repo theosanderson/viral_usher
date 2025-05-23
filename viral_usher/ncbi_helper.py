@@ -79,6 +79,9 @@ class NcbiHelper:
     def esummary_request_one(self, db, id):
         """Use ESummary to get a summary for the given ID in the specified database.  Return the summary dictionary for id."""
         data = self.eutils_request(NCBI_EUTILS_SUMMARY_URL, {"db": db, "id": id})
+        if not data or "result" not in data or id not in data["result"]:
+            self.logger.warning(f"No summary found for {db} ID {id}.")
+            return None
         return data.get("result", {}).get(id, {})
 
     def get_taxonomy_entries(self, species_name):

@@ -78,6 +78,9 @@ def handle_init(args):
         taxid = prompt_taxonomy_id(ncbi, species)
         refseq_id = prompt_refseq_id(ncbi, taxid)
     assembly_id = ncbi.get_assembly_acc_for_refseq_acc(refseq_id)
+    if not assembly_id:
+        print(f"Could not find assembly ID for RefSeq ID {refseq_id} -- can't download RefSeq.")
+        sys.exit(1)
     refseq_zip = ncbi.download_refseq(assembly_id, refseq_id)
     print(f"Downloaded RefSeq {refseq_id} (Assembly {assembly_id}) genome: {refseq_zip}")
     genbank_zip = ncbi.download_genbank(taxid)
