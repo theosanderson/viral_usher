@@ -58,12 +58,12 @@ def write_config(config, config_path):
     """Write a config TOML file to the specified path."""
     with open(config_path, 'w') as f:
         print(f"# usher_viral config for RefSeq {config['refseq_acc']}, taxonomy ID {config['taxonomy_id']}\n", file=f)
-        print(f"refseq_acc = {config['refseq_acc']}", file=f)
+        print(f"refseq_acc = '{config['refseq_acc']}'", file=f)
         print(f"taxonomy_id = {config['taxonomy_id']}", file=f)
-        print(f"refseq_assembly = {config['refseq_assembly']}", file=f)
-        print(f"refseq_zip = {config['refseq_zip']}", file=f)
-        print(f"genbank_zip = {config['genbank_zip']}", file=f)
-        print(f"workdir = {config['workdir']}", file=f)
+        print(f"refseq_assembly = '{config['refseq_assembly']}'", file=f)
+        print(f"refseq_zip = '{config['refseq_zip']}'", file=f)
+        print(f"genbank_zip = '{config['genbank_zip']}'", file=f)
+        print(f"workdir = '{config['workdir']}'", file=f)
 
 def handle_init(args):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -101,7 +101,7 @@ def handle_init(args):
         os.makedirs(workdir)
     workdir = os.path.abspath(workdir)
 
-    config_path_default = f"{workdir}/viral_usher_config_{refseq_id}_{taxid}.json"
+    config_path_default = f"{workdir}/viral_usher_config_{refseq_id}_{taxid}.toml"
     if args.config:
         config_path = args.config
     else:
