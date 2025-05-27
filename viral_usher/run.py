@@ -1,9 +1,12 @@
 # 'run' subcommand
+import gzip
 import io
 import json
+import lzma
 import tomllib
 import os
 import shutil
+import subprocess
 import sys
 import zipfile
 from Bio import SeqIO
@@ -90,17 +93,18 @@ def unpack_genbank_zip(genbank_zip, workdir, min_length, max_N_proportion):
     """Process the fasta and data_report.jsonl files from the GenBank zip,
     filtering the fasta by length and proportion of ambiguous characters and
     keeping only the accession part of sequence names, and extracting basic
-    metadata from data_report.jsonl into much more compact TSV."""
+    metadata from data_report.jsonl into much more compact TSV.
+    Compress fasta with lzma (xz) and TSV with gzip"""
     import json
-    fasta_out_path = os.path.join(workdir, 'genbank.fasta')
-    tsv_out_path = os.path.join(workdir, 'data_report.tsv')
+    fasta_out_path = os.path.join(workdir, 'genbank.fasta.xz')
+    tsv_out_path = os.path.join(workdir, 'data_report.tsv.gz')
     fasta_written = False
     report_written = False
     with zipfile.ZipFile(genbank_zip, 'r') as zip_ref:
         for name in zip_ref.namelist():
             if name.endswith('.fna'):
                 # Filter fasta file and chop descriptions to get accession as name in nextclade
-                with io.TextIOWrapper(zip_ref.open(name, 'r'), encoding='utf-8') as fasta_in, open(fasta_out_path, 'w') as fasta_out:
+                with io.TextIOWrapper(zip_ref.open(name, 'r'), encoding='utf-8') as fasta_in, lzma.open(fasta_out_path, 'wt') as fasta_out:
                     for record in SeqIO.parse(fasta_in, 'fasta'):
                         # Filter sequences by length and proportion of ambiguous characters
                         if len(record.seq) < min_length or record.seq.count('N') / len(record.seq) > max_N_proportion:
@@ -112,7 +116,7 @@ def unpack_genbank_zip(genbank_zip, workdir, min_length, max_N_proportion):
                 fasta_written = True
             elif name.endswith('data_report.jsonl'):
                 # Extract only the bits we want from data_report.jsonl to data_report.tsv
-                with zip_ref.open(name) as jsonl_in, open(tsv_out_path, 'w', encoding='utf-8') as tsv_out:
+                with zip_ref.open(name) as jsonl_in, gzip.open(tsv_out_path, 'wt') as tsv_out:
                     # Write header
                     tsv_out.write("\t".join(["accession", "isolate", "length", "date", "biosample", "submitter"]) + "\n")
                     for line in jsonl_in:
@@ -140,17 +144,54 @@ def unpack_genbank_zip(genbank_zip, workdir, min_length, max_N_proportion):
 
 def align_sequences(refseq_fasta, genbank_fasta, workdir):
     """Run nextclade to align the filtered sequences to the reference."""
-    from subprocess import run, CalledProcessError
-    msa_fasta = os.path.join(workdir, 'msa.fasta')
-    command = ['nextclade', 'run', '--input-ref', refseq_fasta, '--output-fasta', msa_fasta, genbank_fasta]
+    msa_fasta = os.path.join(workdir, 'msa.fasta.xz')
+    command = ['nextclade', 'run', '--input-ref', refseq_fasta, '--include-reference', '--output-fasta', msa_fasta, genbank_fasta]
     try:
-        result = run(command, check=True)
+        result = subprocess.run(command, check=True)
         print(f"Nextclade alignment completed successfully")
-    except CalledProcessError as e:
+    except subprocess.CalledProcessError as e:
         print(f"Nextclade alignment failed: {e.stderr}")
         raise
     return msa_fasta
 
+def msa_to_vcf(msa_fasta, workdir):
+    """Run faToVcf as a pipeline: lzma-decompress msa_fasta.xz | faToVcf | gzip > vcf_output.gz, using Python's lzma/gzip libs and chunked I/O."""
+    import subprocess
+    vcf_output = os.path.join(workdir, 'msa.vcf.gz')
+    with lzma.open(msa_fasta, 'rb') as fasta_in, gzip.open(vcf_output, 'wb') as vcf_out:
+        fatovcf_proc = subprocess.Popen(
+            ['faToVcf', '-includeNoAltN', 'stdin', 'stdout'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE
+        )
+        # Read and write in chunks for efficiency
+        for chunk in iter(lambda: fasta_in.read(8192), b''):
+            fatovcf_proc.stdin.write(chunk)
+        fatovcf_proc.stdin.close()
+        for chunk in iter(lambda: fatovcf_proc.stdout.read(8192), b''):
+            vcf_out.write(chunk)
+        fatovcf_proc.stdout.close()
+        fatovcf_proc.wait()
+    print(f"Wrote VCF file: {vcf_output}")
+    return vcf_output
+
+def make_empty_tree(workdir):
+    """Create an empty tree file to be used as a starting point for usher-sampled."""
+    empty_tree_path = os.path.join(workdir, 'empty_tree.nwk')
+    with open(empty_tree_path, 'w') as f:
+        f.write("()")
+    print(f"Created empty tree file: {empty_tree_path}")
+    return empty_tree_path
+
+def run_usher_sampled(tree, vcf, workdir):
+    pb_out = os.path.join(workdir, 'usher_sampled.pb.gz')
+    command = ['usher-sampled', '-t', tree, '-v', vcf, '-o', pb_out]
+    try:
+        result = subprocess.run(command, check=True)
+        print(f"Usher-sampled completed successfully")
+    except subprocess.CalledProcessError as e:
+        print(f"Usher-sampled failed: {e.stderr}")
+        raise
+    return pb_out
 
 def handle_run(args):
     print(f"Running pipeline with config file: {args.config}")
@@ -158,12 +199,15 @@ def handle_run(args):
         config = parse_config(args.config)
         refseq_fasta, refseq_gbff, refseq_length = unpack_refseq_zip(config['refseq_zip'], config['workdir'], config['refseq_acc'])
         # TODO: Parameterize these into config
-        min_length = int(refseq_length * 0.8)
+        min_length_proportion = 0.8
+        min_length = int(refseq_length * min_length_proportion)
         max_N_proportion = 0.25
-        print(f"Using min_length={min_length} and max_N_proportion={max_N_proportion}")
+        print(f"Using min_length_proportion={min_length_proportion} ({min_length} bases) and max_N_proportion={max_N_proportion}")
         genbank_fasta, data_report = unpack_genbank_zip(config['genbank_zip'], config['workdir'], min_length, max_N_proportion)
         msa_fasta = align_sequences(refseq_fasta, genbank_fasta, config['workdir'])
-    # TODO: Run faToVcf to convert nextclade MSA output to VCF
+        vcf = msa_to_vcf(msa_fasta, config['workdir'])
+        empty_tree = make_empty_tree(config['workdir'])
+        preopt = run_usher_sampled(empty_tree, vcf, config['workdir'])
     # TODO: Run usher-sampled to build a tree
     # TODO: Run matOptimize to clean up after usher-sampled
     # TODO: Rename tree names to include location, isolate name and date; prepare metadata for Taxonium

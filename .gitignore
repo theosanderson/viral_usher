@@ -7,11 +7,14 @@ __pycache__/
 !pyproject.toml
 *.zip
 *.fasta
+*.fasta.xz
 *.gbff
 *.tsv
 *.tsv.gz
 *.vcf
 *.vcf.gz
+*.nh
+*.nwk
 *.pb
 *.pb.gz
 *.jsonl
