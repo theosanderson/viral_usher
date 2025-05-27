@@ -147,16 +147,13 @@ class NcbiHelper:
                     f.write(chunk)
         return filename
     
-    def download_refseq(self, assembly_id, refseq_id):
-        """Download RefSeq using the NCBI Datasets API which requires the GCF_* assembly ID.
-        Save a .zip file using the NC_* RefSeq nucleotide accession.  Return the .zip file name."""
-        filename = f"{refseq_id}.zip"
+    def download_refseq(self, assembly_id, filename):
+        """Download RefSeq using the NCBI Datasets API which requires the GCF_* assembly ID."""
         url = f"{NCBI_DATASETS_V2_BASE}/genome/accession/{assembly_id}/download?include_annotation_type=GENOME_FASTA&include_annotation_type=GENOME_GBFF&filename={filename}"
         return self.download_zip_file(url, filename)
 
-    def download_genbank(self, taxid):
+    def download_genbank(self, taxid, filename):
         """Download all GenBank genomes for the Taxonomy ID.  Return the .zip file name."""
-        filename = f"genbank_{taxid}.zip"
-        url = f"{NCBI_DATASETS_V2_BASE}/virus/taxon/{taxid}/genome/download?include_sequence=GENOME&aux_report=DATASET_REPORT&aux_report=BIOSAMPLE_REPORT&filename=genbank_{taxid}.zip"
+        url = f"{NCBI_DATASETS_V2_BASE}/virus/taxon/{taxid}/genome/download?include_sequence=GENOME&aux_report=DATASET_REPORT&aux_report=BIOSAMPLE_REPORT&filename={filename}"
         return self.download_zip_file(url, filename)
 

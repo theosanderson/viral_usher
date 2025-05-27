@@ -11,11 +11,11 @@ def main():
     init_parser.add_argument("-r", "--refseq", help="RefSeq accession to use as reference/root, if known")
     init_parser.add_argument("-t", "--taxonomy_id", help="NCBI Taxonomy ID of the viral species, if known")
     init_parser.add_argument("-s", "--species", help="Viral species name (if Taxonomy ID is not known)")
-    init_parser.add_argument("--config", type=str, help="Path to config file")
+    init_parser.add_argument("--config", type=str, help="Path to config file output")
 
     # Run subcommand
     run_parser = subparsers.add_parser("run", help="Run the pipeline")
-    run_parser.add_argument("--input", type=str, required=True, help="Path to input data")
+    run_parser.add_argument("--config", type=str, required=True, help="Path to config file input")
 
     args = parser.parse_args()
 
@@ -23,3 +23,9 @@ def main():
         handle_init(args)
     elif args.command == "run":
         handle_run(args)
+    else:
+        parser.print_help()
+        exit(1)
+
+if __name__ == "__main__":
+    main()

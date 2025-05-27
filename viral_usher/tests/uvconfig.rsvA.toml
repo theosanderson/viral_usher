@@ -1,0 +1,10 @@
+# usher_viral config for RSV-A
+
+species_name = 'RSV-A'
+refseq_acc = 'NC_038235.1'
+refseq_assembly = 'GCF_002815475.1'
+taxonomy_id = '11250'
+
+workdir = '.'
+refseq_zip = 'NC_038235.1.zip'
+genbank_zip = 'genbank_11250.zip'

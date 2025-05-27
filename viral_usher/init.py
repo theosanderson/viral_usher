@@ -1,6 +1,7 @@
 # 'init' subcommand
 
 import sys
+import os
 import json
 import re
 import argparse
@@ -53,6 +54,17 @@ def prompt_refseq_id(ncbi, taxid):
         print(f"No RefSeq IDs found for Taxonomy ID {taxid}.")
         sys.exit(1)
 
+def write_config(config, config_path):
+    """Write a config TOML file to the specified path."""
+    with open(config_path, 'w') as f:
+        print(f"# usher_viral config for RefSeq {config['refseq_acc']}, taxonomy ID {config['taxonomy_id']}\n", file=f)
+        print(f"refseq_acc = {config['refseq_acc']}", file=f)
+        print(f"taxonomy_id = {config['taxonomy_id']}", file=f)
+        print(f"refseq_assembly = {config['refseq_assembly']}", file=f)
+        print(f"refseq_zip = {config['refseq_zip']}", file=f)
+        print(f"genbank_zip = {config['genbank_zip']}", file=f)
+        print(f"workdir = {config['workdir']}", file=f)
+
 def handle_init(args):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     ncbi = ncbi_helper.NcbiHelper()
@@ -81,7 +93,36 @@ def handle_init(args):
     if not assembly_id:
         print(f"Could not find assembly ID for RefSeq ID {refseq_id} -- can't download RefSeq.")
         sys.exit(1)
-    refseq_zip = ncbi.download_refseq(assembly_id, refseq_id)
-    print(f"Downloaded RefSeq {refseq_id} (Assembly {assembly_id}) genome: {refseq_zip}")
-    genbank_zip = ncbi.download_genbank(taxid)
-    print(f"Downloaded all GenBank genomes for taxid {taxid}: {genbank_zip}")
+
+    workdir = input("Enter directory where sequences should be downloaded and trees built [.]: ") or "."
+    # Create the workdir if it doesn't exist
+    if not os.path.exists(workdir):
+        print(f"Creating directory {workdir}...")
+        os.makedirs(workdir)
+    workdir = os.path.abspath(workdir)
+
+    config_path_default = f"{workdir}/viral_usher_config_{refseq_id}_{taxid}.json"
+    if args.config:
+        config_path = args.config
+    else:
+        config_path = input(f"Enter path for config file [{config_path_default}]: ") or config_path_default
+    refseq_zip = f"{workdir}/{refseq_id}.zip"
+    genbank_zip = f"{workdir}/genbank_{taxid}.zip"
+    config = {
+        "refseq_acc": refseq_id,
+        "refseq_assembly": assembly_id,
+        "taxonomy_id": taxid,
+        "refseq_zip": refseq_zip,
+        "genbank_zip": genbank_zip,
+        "workdir": workdir,
+    }
+    print(f"Writing config file to {config_path}")
+    write_config(config, config_path)
+
+    # Download the RefSeq genome and all GenBank genomes for the given Taxonomy ID
+    print(f"Downloading RefSeq {refseq_id} (Assembly {assembly_id}) genome to {refseq_zip}...")
+    ncbi.download_refseq(assembly_id, refseq_zip)
+    print(f"Downloading all GenBank genomes for taxid {taxid} to {genbank_zip}...")
+    ncbi.download_genbank(taxid, genbank_zip)
+
+    print(f"\nReady to roll!  Next, try running 'viral-usher run --config {config_path}'\n")

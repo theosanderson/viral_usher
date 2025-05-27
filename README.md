@@ -29,8 +29,8 @@
 
 ## Requirements
 - conda or mamba
-- Python 3.8+
-- `requests` library
+- Python 3.11+
+- Python libraries: `requests`, `biopython`
 
 ---
 

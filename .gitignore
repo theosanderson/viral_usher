@@ -4,3 +4,13 @@ __pycache__/
 *.egg-info
 *.egg
 *.zip
+*.fasta
+*.gbff
+*.tsv
+*.tsv.gz
+*.vcf
+*.vcf.gz
+*.pb
+*.pb.gz
+*.jsonl
+*.jsonl.gz
