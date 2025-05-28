@@ -59,7 +59,7 @@ def parse_config(config_path):
         check_zip_file(config['refseq_zip'])
         check_zip_file(config['genbank_zip'])
     except (ValueError, FileNotFoundError) as e:
-        print(f"Configuration error: {e}")
+        print(f"Error in config file {config_path}: {e}", file=sys.stderr)
         raise
     return config
 
@@ -105,7 +105,6 @@ def unpack_genbank_zip(genbank_zip, workdir, min_length, max_N_proportion):
     keeping only the accession part of sequence names, and extracting basic
     metadata from data_report.jsonl into much more compact TSV.
     Compress fasta with lzma (xz) and TSV with gzip"""
-    import json
     fasta_out_path = os.path.join(workdir, 'genbank.fasta.xz')
     tsv_out_path = os.path.join(workdir, 'data_report.tsv.gz')
     fasta_written = False
@@ -154,7 +153,6 @@ def unpack_genbank_zip(genbank_zip, workdir, min_length, max_N_proportion):
 
 def align_sequences(refseq_fasta, genbank_fasta, workdir):
     """Run nextclade to align the filtered sequences to the reference, and pipe its output to faToVcf and gzip."""
-    import subprocess
     msa_vcf_gz = os.path.join(workdir, 'msa.vcf.gz')
     # Set up the pipeline: nextclade | faToVcf | gzip > msa.vcf.gz
     nextclade_cmd = [
@@ -284,20 +282,17 @@ def usher_to_taxonium(pb_in, metadata_in, workdir):
 
 def handle_run(args):
     print(f"Running pipeline with config file: {args.config}")
-    try:
-        config = parse_config(args.config)
-        refseq_fasta, refseq_gbff, refseq_length = unpack_refseq_zip(config['refseq_zip'], config['workdir'], config['refseq_acc'])
-        # TODO: Parameterize these into config
-        min_length_proportion = 0.8
-        min_length = int(refseq_length * min_length_proportion)
-        max_N_proportion = 0.25
-        print(f"Using min_length_proportion={min_length_proportion} ({min_length} bases) and max_N_proportion={max_N_proportion}")
-        genbank_fasta, data_report = unpack_genbank_zip(config['genbank_zip'], config['workdir'], min_length, max_N_proportion)
-        msa_vcf = align_sequences(refseq_fasta, genbank_fasta, config['workdir'])
-        empty_tree = make_empty_tree(config['workdir'])
-        preopt = run_usher_sampled(empty_tree, msa_vcf, config['workdir'])
-        opt = run_matoptimize(preopt, msa_vcf, config['workdir'])
-        rename_tsv, metadata_tsv, viz = rename_seqs('dummy', data_report, config['workdir'])
-        taxonium = usher_to_taxonium(viz, metadata_tsv)
-    except (ValueError, FileNotFoundError, FileNotFoundError, PermissionError):
-        sys.exit(1)
+    config = parse_config(args.config)
+    refseq_fasta, refseq_gbff, refseq_length = unpack_refseq_zip(config['refseq_zip'], config['workdir'], config['refseq_acc'])
+    # TODO: Parameterize these into config
+    min_length_proportion = 0.8
+    min_length = int(refseq_length * min_length_proportion)
+    max_N_proportion = 0.25
+    print(f"Using min_length_proportion={min_length_proportion} ({min_length} bases) and max_N_proportion={max_N_proportion}")
+    genbank_fasta, data_report = unpack_genbank_zip(config['genbank_zip'], config['workdir'], min_length, max_N_proportion)
+    msa_vcf = align_sequences(refseq_fasta, genbank_fasta, config['workdir'])
+    empty_tree = make_empty_tree(config['workdir'])
+    preopt = run_usher_sampled(empty_tree, msa_vcf, config['workdir'])
+    opt = run_matoptimize(preopt, msa_vcf, config['workdir'])
+    rename_tsv, metadata_tsv, viz = rename_seqs('dummy', data_report, config['workdir'])
+    taxonium = usher_to_taxonium(viz, metadata_tsv)
