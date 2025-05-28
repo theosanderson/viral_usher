@@ -5,6 +5,7 @@ import json
 import lzma
 import tomllib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -62,6 +63,15 @@ def parse_config(config_path):
         raise
     return config
 
+def run_command(command):
+    """Run a command, complain and raise if it fails"""
+    try:
+        result = subprocess.run(command, check=True)
+        print(f"{command[0]} completed successfully")
+    except subprocess.CalledProcessError as e:
+        print(f"{command[0]} failed: {e.stderr}\n{command}", file=sys.stderr)
+        raise
+
 def unpack_refseq_zip(refseq_zip, workdir, refseq_acc):
     """Extract and rename the fasta and gbff files from the RefSeq zip."""
     with zipfile.ZipFile(refseq_zip, 'r') as zip_ref:
@@ -118,7 +128,7 @@ def unpack_genbank_zip(genbank_zip, workdir, min_length, max_N_proportion):
                 # Extract only the bits we want from data_report.jsonl to data_report.tsv
                 with zip_ref.open(name) as jsonl_in, gzip.open(tsv_out_path, 'wt') as tsv_out:
                     # Write header
-                    tsv_out.write("\t".join(["accession", "isolate", "length", "date", "biosample", "submitter"]) + "\n")
+                    tsv_out.write("\t".join(["accession", "isolate", "location", "date", "length", "biosample", "submitter"]) + "\n")
                     for line in jsonl_in:
                         item = json.loads(line)
                         # Only keep selected fields; adjust as needed
@@ -132,7 +142,7 @@ def unpack_genbank_zip(genbank_zip, workdir, min_length, max_N_proportion):
                         submitter_country = item.get('submitter', {}).get('country', '')
                         if submitter and submitter_country:
                             submitter = f"{submitter}, {submitter_country}"
-                        tsv_out.write("\t".join([accession, isolate, str(length), date, biosample, submitter]) + "\n")
+                        tsv_out.write("\t".join([accession, isolate, location, date, str(length), biosample, submitter]) + "\n")
 
                 print(f"Wrote filtered TSV file: {tsv_out_path}")
                 report_written = True
@@ -143,55 +153,134 @@ def unpack_genbank_zip(genbank_zip, workdir, min_length, max_N_proportion):
     return fasta_out_path, tsv_out_path
 
 def align_sequences(refseq_fasta, genbank_fasta, workdir):
-    """Run nextclade to align the filtered sequences to the reference."""
-    msa_fasta = os.path.join(workdir, 'msa.fasta.xz')
-    command = ['nextclade', 'run', '--input-ref', refseq_fasta, '--include-reference', '--output-fasta', msa_fasta, genbank_fasta]
-    try:
-        result = subprocess.run(command, check=True)
-        print(f"Nextclade alignment completed successfully")
-    except subprocess.CalledProcessError as e:
-        print(f"Nextclade alignment failed: {e.stderr}")
-        raise
-    return msa_fasta
-
-def msa_to_vcf(msa_fasta, workdir):
-    """Run faToVcf as a pipeline: lzma-decompress msa_fasta.xz | faToVcf | gzip > vcf_output.gz, using Python's lzma/gzip libs and chunked I/O."""
+    """Run nextclade to align the filtered sequences to the reference, and pipe its output to faToVcf and gzip."""
     import subprocess
-    vcf_output = os.path.join(workdir, 'msa.vcf.gz')
-    with lzma.open(msa_fasta, 'rb') as fasta_in, gzip.open(vcf_output, 'wb') as vcf_out:
-        fatovcf_proc = subprocess.Popen(
-            ['faToVcf', '-includeNoAltN', 'stdin', 'stdout'],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE
-        )
-        # Read and write in chunks for efficiency
-        for chunk in iter(lambda: fasta_in.read(8192), b''):
-            fatovcf_proc.stdin.write(chunk)
-        fatovcf_proc.stdin.close()
-        for chunk in iter(lambda: fatovcf_proc.stdout.read(8192), b''):
-            vcf_out.write(chunk)
-        fatovcf_proc.stdout.close()
-        fatovcf_proc.wait()
-    print(f"Wrote VCF file: {vcf_output}")
-    return vcf_output
+    msa_vcf_gz = os.path.join(workdir, 'msa.vcf.gz')
+    # Set up the pipeline: nextclade | faToVcf | gzip > msa.vcf.gz
+    nextclade_cmd = [
+        'nextclade', 'run', '--input-ref', refseq_fasta, '--include-reference', '--output-fasta', '/dev/stdout', genbank_fasta
+    ]
+    fatovcf_cmd = ['faToVcf', '-includeNoAltN', 'stdin', 'stdout']
+    with gzip.open(msa_vcf_gz, 'wb') as vcf_out:
+        try:
+            # Start nextclade
+            nextclade_proc = subprocess.Popen(nextclade_cmd, stdout=subprocess.PIPE)
+            # Start faToVcf, reading from nextclade's stdout
+            fatovcf_proc = subprocess.Popen(fatovcf_cmd, stdin=nextclade_proc.stdout, stdout=subprocess.PIPE)
+            nextclade_proc.stdout.close()  # Allow nextclade to receive SIGPIPE if faToVcf exits
+            # Write faToVcf's output to gzip file
+            for chunk in iter(lambda: fatovcf_proc.stdout.read(8192), b''):
+                vcf_out.write(chunk)
+            fatovcf_proc.stdout.close()
+            fatovcf_proc.wait()
+            nextclade_proc.wait()
+        except subprocess.CalledProcessError as e:
+            print(f"nextclade | faToVcf failed: {e.stderr}", file=sys.stderr)
+            raise
+    print(f"Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: {msa_vcf_gz}")
+    return msa_vcf_gz
 
 def make_empty_tree(workdir):
     """Create an empty tree file to be used as a starting point for usher-sampled."""
     empty_tree_path = os.path.join(workdir, 'empty_tree.nwk')
     with open(empty_tree_path, 'w') as f:
-        f.write("()")
+        f.write("()\n")
     print(f"Created empty tree file: {empty_tree_path}")
     return empty_tree_path
 
 def run_usher_sampled(tree, vcf, workdir):
     pb_out = os.path.join(workdir, 'usher_sampled.pb.gz')
-    command = ['usher-sampled', '-t', tree, '-v', vcf, '-o', pb_out]
-    try:
-        result = subprocess.run(command, check=True)
-        print(f"Usher-sampled completed successfully")
-    except subprocess.CalledProcessError as e:
-        print(f"Usher-sampled failed: {e.stderr}")
-        raise
+    # TODO: find out number of available threads and pass it to usher
+    command = ['usher-sampled', '-A', '-e', '5', '-t', tree, '-v', vcf, '-o', pb_out,
+               '--optimization_radius', '0', '--batch_size_per_process', '100']
+    run_command(command)
     return pb_out
+
+def run_matoptimize(pb_file, vcf_file, workdir):
+    # TODO: find out number of available threads and pass it to matOptimize
+    """Run matOptimize to clean up after usher-sampled"""
+    pb_out = os.path.join(workdir, 'optimized.pb.gz')
+    command = ['matOptimize', '-m', '0.00000001', '-M', '1',
+               '-i', pb_file, '-v', vcf_file, '-o', pb_out]
+    run_command(command)
+    return pb_out
+
+def sanitize_name(name):
+    """Replace characters that could cause trouble, such as spaces or Newick special characters,
+    with underscores."""
+    for c in ['[', ']', '(', ')', ':', ';', ',', "'", ' ']:
+        name = name.replace(c, '_')
+    return name
+
+def rename_seqs(pb_in, data_report_tsv, workdir):
+    """Rename sequence names in tree to include location, isolate name and date when available.
+    Prepare metadata for taxonium."""
+    rename_out = os.path.join(workdir, "rename.tsv")
+    metadata_out = os.path.join(workdir, "metadata.tsv.gz")
+    pb_out = os.path.join(workdir, "viz.pb.gz")
+    with gzip.open(data_report_tsv, 'rt') as tsv_in, open(rename_out, 'w') as r_out, gzip.open(metadata_out, 'wt') as m_out:
+        header = tsv_in.readline().split('\t')
+        accession_idx = header.index('accession')
+        isolate_idx = header.index('isolate')
+        date_idx = header.index('date')
+        location_idx = header.index('location')
+        # No header for rename_out; write header for metadata_out
+        m_out.write('strain' + '\t' + '\t'.join(header))
+
+        # Create a mapping from accession to metadata
+        acc_to_name = {}
+        for line in tsv_in:
+            fields = line.split('\t')
+            accession = fields[accession_idx].strip()
+            isolate = fields[isolate_idx].strip()
+            date = fields[date_idx].strip()
+            location = fields[location_idx].strip()
+            isolate = sanitize_name(isolate)
+            if location:
+                location = sanitize_name(location)
+                country = location.split(':')[0]
+            groups = re.match('^[0-9]{4}(-[0-9]{2})?(-[0-9]{2})?$', date)
+            year = None
+            if groups:
+                year = groups[1]
+            if not date:
+                date = '?'
+            if '/' in isolate:
+                name = '|'.join([isolate, accession, date])
+            else:
+                if country and isolate and year:
+                    full = '/'.join([country, isolate, year])
+                elif country and year:
+                    full = '/'.join([country, year])
+                elif isolate and year:
+                    full = '/'.join([isolate, year])
+                elif isolate:
+                    full = isolate
+            if full:
+                name = '|'.join([full, accession, date])
+            else:
+                name = '|'.join([accession, date])
+            acc_to_name[accession] = name
+            r_out.write("\t".join([accession, name]) + '\n')
+            m_out.write(name + '\t' + '\t'.join(fields))
+    command = ['matUtils', 'mask', '-i', pb_in, '--rename-samples', rename_out, '-o', pb_out]
+    run_command(command)
+    return rename_out, metadata_out, pb_out
+
+def get_header(tsv_in):
+    with open(tsv_in, 'r') as tsv:
+        header = tsv_in.readline().split('\t')
+        for idx, field in enumerate(header):
+            header[idx] = field.strip()
+    return header
+
+def usher_to_taxonium(pb_in, metadata_in, workdir):
+    jsonl_out = os.path.join(workdir, "tree.jsonl.gz")
+    columns = ','.join(get_header(metadata_in))
+    command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
+               '--columns', columns, '--output', jsonl_out]
+    run_command(command)
+    return jsonl_out    
 
 def handle_run(args):
     print(f"Running pipeline with config file: {args.config}")
@@ -204,13 +293,11 @@ def handle_run(args):
         max_N_proportion = 0.25
         print(f"Using min_length_proportion={min_length_proportion} ({min_length} bases) and max_N_proportion={max_N_proportion}")
         genbank_fasta, data_report = unpack_genbank_zip(config['genbank_zip'], config['workdir'], min_length, max_N_proportion)
-        msa_fasta = align_sequences(refseq_fasta, genbank_fasta, config['workdir'])
-        vcf = msa_to_vcf(msa_fasta, config['workdir'])
+        msa_vcf = align_sequences(refseq_fasta, genbank_fasta, config['workdir'])
         empty_tree = make_empty_tree(config['workdir'])
-        preopt = run_usher_sampled(empty_tree, vcf, config['workdir'])
-    # TODO: Run usher-sampled to build a tree
-    # TODO: Run matOptimize to clean up after usher-sampled
-    # TODO: Rename tree names to include location, isolate name and date; prepare metadata for Taxonium
-    # TODO: Run usher_to_taxonium to visualize the tree
+        preopt = run_usher_sampled(empty_tree, msa_vcf, config['workdir'])
+        opt = run_matoptimize(preopt, msa_vcf, config['workdir'])
+        rename_tsv, metadata_tsv, viz = rename_seqs('dummy', data_report, config['workdir'])
+        taxonium = usher_to_taxonium(viz, metadata_tsv)
     except (ValueError, FileNotFoundError, FileNotFoundError, PermissionError):
         sys.exit(1)
