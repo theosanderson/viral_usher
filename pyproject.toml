@@ -7,5 +7,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["requests", "biopython", "docker"]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["viral_usher"]
+
 [project.scripts]
 viral_usher = "viral_usher.cli:main"

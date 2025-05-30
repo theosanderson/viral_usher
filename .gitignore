@@ -3,6 +3,7 @@
 __pycache__/
 *.egg-info
 *.egg
+*.swp
 *.toml
 !pyproject.toml
 *.zip
@@ -11,6 +12,7 @@ __pycache__/
 *.gbff
 *.tsv
 *.tsv.gz
+*.txt
 *.vcf
 *.vcf.gz
 *.nh

@@ -59,10 +59,8 @@ def write_config(config, config_path):
     with open(config_path, 'w') as f:
         print(f"# usher_viral config for RefSeq {config['refseq_acc']}, taxonomy ID {config['taxonomy_id']}\n", file=f)
         print(f"refseq_acc = '{config['refseq_acc']}'", file=f)
-        print(f"taxonomy_id = {config['taxonomy_id']}", file=f)
+        print(f"taxonomy_id = '{config['taxonomy_id']}'", file=f)
         print(f"refseq_assembly = '{config['refseq_assembly']}'", file=f)
-        print(f"refseq_zip = '{config['refseq_zip']}'", file=f)
-        print(f"genbank_zip = '{config['genbank_zip']}'", file=f)
         print(f"workdir = '{config['workdir']}'", file=f)
 
 def handle_init(args):
@@ -99,30 +97,20 @@ def handle_init(args):
     if not os.path.exists(workdir):
         print(f"Creating directory {workdir}...")
         os.makedirs(workdir)
-    workdir = os.path.abspath(workdir)
 
     config_path_default = f"{workdir}/viral_usher_config_{refseq_id}_{taxid}.toml"
     if args.config:
         config_path = args.config
     else:
         config_path = input(f"Enter path for config file [{config_path_default}]: ") or config_path_default
-    refseq_zip = f"{workdir}/{refseq_id}.zip"
-    genbank_zip = f"{workdir}/genbank_{taxid}.zip"
+    workdir = os.path.abspath(workdir)
     config = {
         "refseq_acc": refseq_id,
         "refseq_assembly": assembly_id,
         "taxonomy_id": taxid,
-        "refseq_zip": refseq_zip,
-        "genbank_zip": genbank_zip,
         "workdir": workdir,
     }
     print(f"Writing config file to {config_path}")
     write_config(config, config_path)
-
-    # Download the RefSeq genome and all GenBank genomes for the given Taxonomy ID
-    print(f"Downloading RefSeq {refseq_id} (Assembly {assembly_id}) genome to {refseq_zip}...")
-    ncbi.download_refseq(assembly_id, refseq_zip)
-    print(f"Downloading all GenBank genomes for taxid {taxid} to {genbank_zip}...")
-    ncbi.download_genbank(taxid, genbank_zip)
 
     print(f"\nReady to roll!  Next, try running 'viral-usher run --config {config_path}'\n")

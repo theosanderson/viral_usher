@@ -11,6 +11,7 @@ import subprocess
 import sys
 import zipfile
 from Bio import SeqIO
+from . import ncbi_helper
 
 def read_config(config_path):
     with open(config_path, 'rb') as f:
@@ -35,29 +36,16 @@ def check_refseq_assembly(refseq_assembly):
     if not refseq_assembly.startswith("GCA_") and not refseq_assembly.startswith("GCF_"):
         raise ValueError("RefSeq assembly must start with 'GCA_' or 'GCF_'.")
     
-def check_zip_file(zip_file):
-    if not zip_file or not isinstance(zip_file, str):
-        raise ValueError("Zip file path must be a non-empty string.")
-    if not zip_file.endswith(".zip"):
-        raise ValueError("Zip file must have a '.zip' extension.")
-    if not os.path.exists(zip_file):
-        raise FileNotFoundError(f"Zip file '{zip_file}' does not exist.")
-
 def parse_config(config_path):
     """Read the config file and validate its contents."""
     config = read_config(config_path)
-    print(f"workdir: {config['workdir']}")
     print(f"refseq_acc: {config['refseq_acc']}")
     print(f"taxonomy_id: {config['taxonomy_id']}")
     print(f"refseq_assembly: {config['refseq_assembly']}")
-    print(f"refseq_zip: {config['refseq_zip']}")
-    print(f"genbank_zip: {config['genbank_zip']}")
     try:
         check_refseq_acc(config['refseq_acc'])
         check_taxonomy_id(config['taxonomy_id'])
         check_refseq_assembly(config['refseq_assembly'])
-        check_zip_file(config['refseq_zip'])
-        check_zip_file(config['genbank_zip'])
     except (ValueError, FileNotFoundError) as e:
         print(f"Error in config file {config_path}: {e}", file=sys.stderr)
         raise
@@ -72,11 +60,11 @@ def run_command(command):
         print(f"{command[0]} failed: {e.stderr}\n{command}", file=sys.stderr)
         raise
 
-def unpack_refseq_zip(refseq_zip, workdir, refseq_acc):
+def unpack_refseq_zip(refseq_zip, refseq_acc):
     """Extract and rename the fasta and gbff files from the RefSeq zip."""
     with zipfile.ZipFile(refseq_zip, 'r') as zip_ref:
-        fasta_path = os.path.join(workdir, 'refseq.fasta')
-        gbff_path = os.path.join(workdir, 'refseq.gbff')
+        fasta_path = 'refseq.fasta'
+        gbff_path = 'refseq.gbff'
         length = 0
         fasta_found = False
         gbff_found = False
@@ -99,14 +87,14 @@ def unpack_refseq_zip(refseq_zip, workdir, refseq_acc):
             raise ValueError(f"Failed to find .gbff file in {refseq_zip}.")
     return fasta_path, gbff_path, length
 
-def unpack_genbank_zip(genbank_zip, workdir, min_length, max_N_proportion):
+def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
     """Process the fasta and data_report.jsonl files from the GenBank zip,
     filtering the fasta by length and proportion of ambiguous characters and
     keeping only the accession part of sequence names, and extracting basic
     metadata from data_report.jsonl into much more compact TSV.
     Compress fasta with lzma (xz) and TSV with gzip"""
-    fasta_out_path = os.path.join(workdir, 'genbank.fasta.xz')
-    tsv_out_path = os.path.join(workdir, 'data_report.tsv.gz')
+    fasta_out_path = 'genbank.fasta.xz'
+    tsv_out_path = 'data_report.tsv.gz'
     fasta_written = False
     report_written = False
     with zipfile.ZipFile(genbank_zip, 'r') as zip_ref:
@@ -151,9 +139,9 @@ def unpack_genbank_zip(genbank_zip, workdir, min_length, max_N_proportion):
         raise ValueError(f"Failed to find data_report.jsonl file in {genbank_zip}.")
     return fasta_out_path, tsv_out_path
 
-def align_sequences(refseq_fasta, genbank_fasta, workdir):
+def align_sequences(refseq_fasta, genbank_fasta):
     """Run nextclade to align the filtered sequences to the reference, and pipe its output to faToVcf and gzip."""
-    msa_vcf_gz = os.path.join(workdir, 'msa.vcf.gz')
+    msa_vcf_gz = 'msa.vcf.gz'
     # Set up the pipeline: nextclade | faToVcf | gzip > msa.vcf.gz
     nextclade_cmd = [
         'nextclade', 'run', '--input-ref', refseq_fasta, '--include-reference', '--output-fasta', '/dev/stdout', genbank_fasta
@@ -178,27 +166,27 @@ def align_sequences(refseq_fasta, genbank_fasta, workdir):
     print(f"Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: {msa_vcf_gz}")
     return msa_vcf_gz
 
-def make_empty_tree(workdir):
+def make_empty_tree():
     """Create an empty tree file to be used as a starting point for usher-sampled."""
-    empty_tree_path = os.path.join(workdir, 'empty_tree.nwk')
+    empty_tree_path = 'empty_tree.nwk'
     with open(empty_tree_path, 'w') as f:
         f.write("()\n")
     print(f"Created empty tree file: {empty_tree_path}")
     return empty_tree_path
 
-def run_usher_sampled(tree, vcf, workdir):
+def run_usher_sampled(tree, vcf):
     """Build the tree.  Use docker --platform linux/amd64 so this will work even on Mac with ARM CPU. """
-    pb_out = os.path.join(workdir, 'usher_sampled.pb.gz')
+    pb_out = 'usher_sampled.pb.gz'
     # TODO: find out number of available threads and pass it to usher
     command = ['usher-sampled', '-A', '-e', '5', '-t', tree, '-v', vcf, '-o', pb_out,
                '--optimization_radius', '0', '--batch_size_per_process', '100']
     run_command(command)
     return pb_out
 
-def run_matoptimize(pb_file, vcf_file, workdir):
+def run_matoptimize(pb_file, vcf_file):
     # TODO: find out number of available threads and pass it to matOptimize
     """Run matOptimize to clean up after usher-sampled"""
-    pb_out = os.path.join(workdir, 'optimized.pb.gz')
+    pb_out = 'optimized.pb.gz'
     command = ['matOptimize', '-m', '0.00000001', '-M', '1',
                '-i', pb_file, '-v', vcf_file, '-o', pb_out]
     run_command(command)
@@ -211,12 +199,12 @@ def sanitize_name(name):
         name = name.replace(c, '_')
     return name
 
-def rename_seqs(pb_in, data_report_tsv, workdir):
+def rename_seqs(pb_in, data_report_tsv):
     """Rename sequence names in tree to include location, isolate name and date when available.
     Prepare metadata for taxonium."""
-    rename_out = os.path.join(workdir, "rename.tsv")
-    metadata_out = os.path.join(workdir, "metadata.tsv.gz")
-    pb_out = os.path.join(workdir, "viz.pb.gz")
+    rename_out = "rename.tsv"
+    metadata_out = "metadata.tsv.gz"
+    pb_out = "viz.pb.gz"
     with gzip.open(data_report_tsv, 'rt') as tsv_in, open(rename_out, 'w') as r_out, gzip.open(metadata_out, 'wt') as m_out:
         header = tsv_in.readline().split('\t')
         accession_idx = header.index('accession')
@@ -235,6 +223,7 @@ def rename_seqs(pb_in, data_report_tsv, workdir):
             date = fields[date_idx].strip()
             location = fields[location_idx].strip()
             isolate = sanitize_name(isolate)
+            country = None
             if location:
                 location = sanitize_name(location)
                 country = location.split(':')[0]
@@ -274,8 +263,8 @@ def get_header(tsv_in):
             header[idx] = field.strip()
     return header
 
-def usher_to_taxonium(pb_in, metadata_in, workdir):
-    jsonl_out = os.path.join(workdir, "tree.jsonl.gz")
+def usher_to_taxonium(pb_in, metadata_in):
+    jsonl_out = "tree.jsonl.gz"
     columns = ','.join(get_header(metadata_in))
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
                '--columns', columns, '--output', jsonl_out]
@@ -290,19 +279,33 @@ def main():
 
     print(f"Running pipeline with config file: {args.config}")
     config = parse_config(args.config)
-    refseq_fasta, refseq_gbff, refseq_length = unpack_refseq_zip(config['refseq_zip'], config['workdir'], config['refseq_acc'])
+    refseq_acc = config['refseq_acc']
+    assembly_id = config['refseq_assembly']
+    taxid = config['taxonomy_id']
+    workdir = config['workdir']
+    refseq_zip = f"{refseq_acc}.zip"
+    genbank_zip = f"genbank_{taxid}.zip"
+
+    # Download the RefSeq genome and all GenBank genomes for the given Taxonomy ID
+    ncbi = ncbi_helper.NcbiHelper()
+    print(f"Downloading RefSeq {refseq_acc} (Assembly {assembly_id}) genome to {refseq_zip}...")
+    ncbi.download_refseq(assembly_id, refseq_zip)
+    print(f"Downloading all GenBank genomes for taxid {taxid} to {genbank_zip}...")
+    ncbi.download_genbank(taxid, genbank_zip)
+
+    refseq_fasta, refseq_gbff, refseq_length = unpack_refseq_zip(refseq_zip, refseq_acc)
     # TODO: Parameterize these into config
     min_length_proportion = 0.8
     min_length = int(refseq_length * min_length_proportion)
     max_N_proportion = 0.25
     print(f"Using min_length_proportion={min_length_proportion} ({min_length} bases) and max_N_proportion={max_N_proportion}")
-    genbank_fasta, data_report = unpack_genbank_zip(config['genbank_zip'], config['workdir'], min_length, max_N_proportion)
-    msa_vcf = align_sequences(refseq_fasta, genbank_fasta, config['workdir'])
-    empty_tree = make_empty_tree(config['workdir'])
-    preopt_tree = run_usher_sampled(empty_tree, msa_vcf, config['workdir'])
-    opt_tree = run_matoptimize(preopt_tree, msa_vcf, config['workdir'])
-    rename_tsv, metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report, config['workdir'])
-    taxonium = usher_to_taxonium(viz_tree, metadata_tsv, config['workdir'])
+    genbank_fasta, data_report = unpack_genbank_zip(genbank_zip, min_length, max_N_proportion)
+    msa_vcf = align_sequences(refseq_fasta, genbank_fasta)
+    empty_tree = make_empty_tree()
+    preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
+    opt_tree = run_matoptimize(preopt_tree, msa_vcf)
+    rename_tsv, metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report)
+    taxonium = usher_to_taxonium(viz_tree, metadata_tsv)
 
 if __name__ == "__main__":
     main()
