@@ -39,19 +39,19 @@
 ### Create a config file with `viral_usher init`
 Interactive setup:
 
-    ```bash
-    viral_usher init
-    ```
+```bash
+viral_usher init
+```
 With command line options:
 
-    ```bash
-    viral_usher init --refseq NC_004162.2
-    ```
+```bash
+viral_usher init --refseq NC_004162.2
+```
 
 ### Build a tree using config file:
-    ```bash
-    viral_usher build --config chikungunya/config.toml
-    ```
+```bash
+viral_usher build --config chikungunya/config.toml
+```
 
 ---
 
@@ -59,9 +59,9 @@ With command line options:
 
 ### Install dev dependencies
 
-    ```bash
-    pip install -e .
-    ```
+```bash
+pip install -e .
+```
 
 ### Run tests
 someday
