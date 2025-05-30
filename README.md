@@ -23,13 +23,14 @@
 2. Install the package:
     ```bash
     pip install .
+    ```
 
 ---
 
 ## Requirements
 - Docker
 - Python 3.11+
-- Python libraries: `requests`, `biopython`, `docker`
+- Python libraries: `docker`
 
 ---
 
