@@ -8,7 +8,7 @@
 
 - Subcommands:
   - `init`: Generate a config file (interactive or via command line options)
-  - `run`: Execute the pipeline using the config file
+  - `build`: Download sequences and build a tree, guided by the config file
 - Uses Docker for portability to laptops, servers, or cloud platforms
 
 ---
@@ -47,9 +47,9 @@ With command line options:
     viral_usher init --refseq NC_004162.2
     ```
 
-### Run pipeline
+### Build a tree using config file:
     ```bash
-    viral_usher run --input data/input.fasta
+    viral_usher build --config chikungunya/config.toml
     ```
 
 ---

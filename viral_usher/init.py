@@ -113,4 +113,4 @@ def handle_init(args):
     print(f"Writing config file to {config_path}")
     write_config(config, config_path)
 
-    print(f"\nReady to roll!  Next, try running 'viral-usher run --config {config_path}'\n")
+    print(f"\nReady to roll!  Next, try running 'viral-usher build --config {config_path}'\n")

@@ -1,4 +1,4 @@
-# 'run' subcommand
+# 'build' subcommand
 import docker
 import os
 import shutil
@@ -57,7 +57,7 @@ def parse_config(config_path):
         raise
     return config
 
-def handle_run(args):
+def handle_build(args):
     if not check_docker_command():
         print(f"docker command not working; please install Docker.")
         sys.exit(1)

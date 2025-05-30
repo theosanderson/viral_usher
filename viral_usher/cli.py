@@ -1,9 +1,9 @@
 import argparse
 from .init import handle_init
-from .run import handle_run
+from .build import handle_build
 
 def main():
-    parser = argparse.ArgumentParser(prog="viral-usher")
+    parser = argparse.ArgumentParser(prog="viral_usher")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Init subcommand
@@ -13,16 +13,16 @@ def main():
     init_parser.add_argument("-s", "--species", help="Viral species name (if Taxonomy ID is not known)")
     init_parser.add_argument("--config", type=str, help="Path to config file output")
 
-    # Run subcommand
-    run_parser = subparsers.add_parser("run", help="Run the pipeline")
-    run_parser.add_argument("--config", type=str, required=True, help="Path to config file input")
+    # Build subcommand
+    build_parser = subparsers.add_parser("build", help="Run the pipeline to download sequences and build a tree")
+    build_parser.add_argument("--config", type=str, required=True, help="Path to config file input")
 
     args = parser.parse_args()
 
     if args.command == "init":
         handle_init(args)
-    elif args.command == "run":
-        handle_run(args)
+    elif args.command == "build":
+        handle_build(args)
     else:
         parser.print_help()
         exit(1)

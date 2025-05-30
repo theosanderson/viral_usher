@@ -1,5 +1,5 @@
 [project]
-name = "viral_usher_docker"
+name = "viral_usher_core"
 version = "0.1.0"
 description = "Build phylogenetic tree of viral genomes using UShER (script to be run in Docker)"
 authors = [{ name = "Angie Hinrichs", email = "hinrichs@ucsc.edu" }]
