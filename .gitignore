@@ -1,8 +1,10 @@
 .vscode
+.DS_Store
 *.pyc
 __pycache__/
 *.egg-info
 *.egg
+build
 *.swp
 *.toml
 !pyproject.toml
