@@ -9,8 +9,7 @@
 - Subcommands:
   - `init`: Generate a config file (interactive or via command line options)
   - `run`: Execute the pipeline using the config file
-- Conda/Bioconda integration for tool installation
-- Portable to laptops, servers, or cloud platforms
+- Uses Docker for portability to laptops, servers, or cloud platforms
 
 ---
 
@@ -28,9 +27,9 @@
 ---
 
 ## Requirements
-- conda or mamba
+- Docker
 - Python 3.11+
-- Python libraries: `requests`, `biopython`
+- Python libraries: `requests`, `biopython`, `docker`
 
 ---
 
