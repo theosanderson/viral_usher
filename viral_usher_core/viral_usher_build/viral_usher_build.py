@@ -139,14 +139,12 @@ def make_empty_tree():
 def run_usher_sampled(tree, vcf):
     """Build the tree.  Use docker --platform linux/amd64 so this will work even on Mac with ARM CPU. """
     pb_out = 'usher_sampled.pb.gz'
-    # TODO: find out number of available threads and pass it to usher
     command = ['usher-sampled', '-A', '-e', '5', '-t', tree, '-v', vcf, '-o', pb_out,
                '--optimization_radius', '0', '--batch_size_per_process', '100']
     run_command(command)
     return pb_out
 
 def run_matoptimize(pb_file, vcf_file):
-    # TODO: find out number of available threads and pass it to matOptimize
     """Run matOptimize to clean up after usher-sampled"""
     pb_out = 'optimized.pb.gz'
     command = ['matOptimize', '-m', '0.00000001', '-M', '1',

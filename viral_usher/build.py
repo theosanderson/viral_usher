@@ -37,12 +37,12 @@ def handle_build(args):
         print(f"Config file needs to be present in build directory ({workdir}); copying {args.config} into build directory.")
         shutil.copy(args.config, workdir)
 
-    #TODO client.images.pull(docker_image)
     print(f"Running docker image {docker_image}")
     try:
         docker_client.containers.run(docker_image,
                                     platform=docker_platform,
                                     remove=True,
+                                    network_mode='host',
                                     user=':'.join([str(user_id), str(group_id)]),
                                     volumes=[ ':'.join([workdir, docker_workdir]) ],
                                     command=["viral_usher_build", "--config", config_basename])
