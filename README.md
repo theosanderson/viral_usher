@@ -48,7 +48,7 @@ With command line options:
 viral_usher init --refseq NC_004162.2
 ```
 
-### Build a tree using config file:
+### Build a tree using config file with `viral_usher build`:
 ```bash
 viral_usher build --config chikungunya/config.toml
 ```
