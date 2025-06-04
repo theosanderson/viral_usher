@@ -11,17 +11,20 @@ docker_platform = 'linux/amd64'
 docker_workdir = '/data'
 
 def check_docker_command():
-    success = False
     try:
         result = subprocess.run(['docker', '--help'], check=True, capture_output=True)
-        success = True
     except:
-        pass
-    return success
+        print(f"\nUnable to run 'docker --help' -- please install Docker from https://www.docker.com/ and try again.\n", file=sys.stderr)
+        return False
+    try:
+        result = subprocess.run(['docker', 'images'], check=True, capture_output=True)
+    except:
+        print(f"\nUnable to run 'docker --images' -- please make sure the docker daemon is running (e.g. on a Mac, start the Docker app)\n", file=sys.stderr)
+        return False
+    return True
 
 def handle_build(args):
     if not check_docker_command():
-        print(f"docker command not working; please install Docker.")
         sys.exit(1)
     print(f"Running pipeline with config file: {args.config}")
     config = parse_config(args.config)
