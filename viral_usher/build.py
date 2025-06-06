@@ -26,6 +26,28 @@ def check_docker_command():
         return False
     return True
 
+def image_created_within_last_day(image: docker.models.images.Image):
+    """Return True if the Docker image object was created within the past 24 hours"""
+    created_at_str = image.attrs["Created"]
+    created_at = datetime.datetime.strptime(created_at_str[:26], "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return (now - created_at) <= datetime.timedelta(days=1)
+
+def maybe_pull_docker_image(client: docker.DockerClient, image_name: str):
+    """If image does not already exist locally, or is more than a day old, pull it."""
+    need_pull = False
+    try:
+        image = client.images.get(image_name)
+    except docker.errors.ImageNotFound:
+        print(f"Docker image {image_name} is not present, pulling it from DockerHub...")
+        need_pull = True
+    if image:
+        if not image_created_within_last_day(image):
+            print(f"Pulling latest version of docker image {image_name} from DockerHub...")
+            need_pull = True
+    if need_pull:
+        client.images.pull(image_name)
+
 def maybe_copy_to_workdir(filepath, workdir):
     """Return filepath's relative path within workdir, copying the file into workdir if necessary."""
     basename = os.path.basename(filepath)
@@ -83,6 +105,7 @@ def handle_build(args):
 
     print(f"Running docker image {docker_image}")
     try:
+        maybe_pull_docker_image(docker_client, docker_image)
         container = docker_client.containers.run(
             docker_image,
             platform=docker_platform,
