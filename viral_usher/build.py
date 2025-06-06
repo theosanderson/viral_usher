@@ -72,7 +72,7 @@ def handle_build(args):
     # If extra_fasta is given, make sure it will be available in workdir and that
     # the config used by the docker image script uses its relative path in workdir.
     config_changed = False
-    extra_fasta = config['extra_fasta']
+    extra_fasta = config.get('extra_fasta', '')
     if extra_fasta:
         extra_fasta_rel = maybe_copy_to_workdir(extra_fasta, workdir)
         if extra_fasta_rel != extra_fasta:

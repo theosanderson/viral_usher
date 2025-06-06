@@ -302,7 +302,7 @@ def main():
     assembly_id = config['refseq_assembly']
     taxid = config['taxonomy_id']
     workdir = config['workdir']
-    extra_fasta = config['extra_fasta']
+    extra_fasta = config.get('extra_fasta', '')
     refseq_zip = f"{refseq_acc}.zip"
     genbank_zip = f"genbank_{taxid}.zip"
 
