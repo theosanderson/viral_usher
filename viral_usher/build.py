@@ -129,5 +129,5 @@ def handle_build(args):
     except (docker.errors.ContainerError) as e:
         print(f"docker container {docker_image} failed:\n{e}", file=sys.stderr)
         sys.exit(1)
-    print(f"Success -- you can view {workdir}/tree.json.gz in taxonium now.")
+    print(f"Success -- you can view {workdir}/tree.jsonl.gz using https://taxonium.org/ now.")
     #TODO check results, maybe save a log file?
