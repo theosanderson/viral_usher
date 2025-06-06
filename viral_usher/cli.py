@@ -11,6 +11,7 @@ def main():
     init_parser.add_argument("-r", "--refseq", help="RefSeq accession to use as reference/root, if known")
     init_parser.add_argument("-t", "--taxonomy_id", help="NCBI Taxonomy ID of the viral species, if known")
     init_parser.add_argument("-s", "--species", help="Viral species name (if Taxonomy ID is not known)")
+    init_parser.add_argument("-f", "--extra_fasta", help="Additional sequences to include in tree")
     init_parser.add_argument("--config", type=str, help="Path to config file output")
 
     # Build subcommand

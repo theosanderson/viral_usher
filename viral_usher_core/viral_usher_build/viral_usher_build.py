@@ -13,14 +13,29 @@ from Bio import SeqIO
 from .config import parse_config
 from . import ncbi_helper
 
-def run_command(command):
+def run_command(command, stdout_filename=None, stderr_filename=None):
     """Run a command, complain and raise if it fails"""
+    stdout = None
+    stderr = None
+    if stdout_filename:
+        stdout = open(stdout_filename, 'w')
+    if stderr_filename:
+        stderr = open(stderr_filename, 'w')
     try:
-        result = subprocess.run(command, check=True)
+        result = subprocess.run(command, check=True, stdout=stdout, stderr=stderr)
         print(f"{command[0]} completed successfully")
     except subprocess.CalledProcessError as e:
-        print(f"{command[0]} failed: {e.stderr}\n{command}", file=sys.stderr)
+        if e.stderr:
+            print(f"{command[0]} failed: {e.stderr}\n{command}", file=sys.stderr)
+        elif stderr_filename:
+            print(f"{command[0]} failed, see {stderr_filename}\n{command}", file=sys.stderr)
+        else:
+            print(f"{command[0]} failed\n{command}", file=sys.stderr)
         raise
+    if stdout:
+        stdout.close()
+    if stderr:
+        stderr.close()
 
 def unpack_refseq_zip(refseq_zip, refseq_acc):
     """Extract and rename the fasta and gbff files from the RefSeq zip."""
@@ -49,6 +64,10 @@ def unpack_refseq_zip(refseq_zip, refseq_acc):
             raise ValueError(f"Failed to find .gbff file in {refseq_zip}.")
     return fasta_path, gbff_path, length
 
+def passes_seq_filter(record, min_length, max_N_proportion):
+    """Fasta record passes the filter if it is at least min_length bases and has at most max_N_proportion of Ns"""
+    return len(record.seq) >= min_length and record.seq.count('N') / len(record.seq) <= max_N_proportion
+
 def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
     """Process the fasta and data_report.jsonl files from the GenBank zip,
     filtering the fasta by length and proportion of ambiguous characters and
@@ -66,7 +85,7 @@ def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
                 with io.TextIOWrapper(zip_ref.open(name, 'r'), encoding='utf-8') as fasta_in, lzma.open(fasta_out_path, 'wt') as fasta_out:
                     for record in SeqIO.parse(fasta_in, 'fasta'):
                         # Filter sequences by length and proportion of ambiguous characters
-                        if len(record.seq) < min_length or record.seq.count('N') / len(record.seq) > max_N_proportion:
+                        if not passes_seq_filter(record, min_length, max_N_proportion):
                             continue
                         # Chop sequence name after first space to limit to accession only
                         record.description = record.id
@@ -101,21 +120,61 @@ def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
         raise ValueError(f"Failed to find data_report.jsonl file in {genbank_zip}.")
     return fasta_out_path, tsv_out_path
 
-def align_sequences(refseq_fasta, genbank_fasta):
+def open_maybe_decompress(filename, mode='rt', encoding='utf-8'):
+    """
+    Open a file, automatically using gzip or lzma decompression based on the file extension.
+    Supports .gz, .xz, and uncompressed files.
+    """
+    if filename.endswith('.gz'):
+        return gzip.open(filename, mode, encoding=encoding)
+    elif filename.endswith('.xz'):
+        return lzma.open(filename, mode, encoding=encoding)
+    else:
+        return open(filename, mode, encoding=encoding)
+
+def record_to_fasta_bytes(record):
+    """Convert a SeqRecord to FASTA-encoded bytes (utf-8)"""
+    buf = io.StringIO()
+    SeqIO.write(record, buf, 'fasta')
+    return buf.getvalue().encode('utf-8')
+
+def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, min_length, max_N_proportion):
     """Run nextclade to align the filtered sequences to the reference, and pipe its output to faToVcf and gzip."""
     msa_vcf_gz = 'msa.vcf.gz'
-    # Set up the pipeline: nextclade | faToVcf | gzip > msa.vcf.gz
+    # Set up the pipeline: | nextclade | faToVcf | gzip > msa.vcf.gz
     nextclade_cmd = [
-        'nextclade', 'run', '--input-ref', refseq_fasta, '--include-reference', '--output-fasta', '/dev/stdout', genbank_fasta
+        'nextclade', 'run', '--input-ref', refseq_fasta, '--output-fasta', '/dev/stdout'
     ]
     fatovcf_cmd = ['faToVcf', '-includeNoAltN', 'stdin', 'stdout']
     with gzip.open(msa_vcf_gz, 'wb') as vcf_out:
         try:
             # Start nextclade
-            nextclade_proc = subprocess.Popen(nextclade_cmd, stdout=subprocess.PIPE)
+            nextclade_proc = subprocess.Popen(nextclade_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
             # Start faToVcf, reading from nextclade's stdout
             fatovcf_proc = subprocess.Popen(fatovcf_cmd, stdin=nextclade_proc.stdout, stdout=subprocess.PIPE)
             nextclade_proc.stdout.close()  # Allow nextclade to receive SIGPIPE if faToVcf exits
+            # Send fasta input(s) to nextclade_proc's stdin.  If extra_fasta duplicates sequences
+            # also found in genbank_fasta, prefer the ones in extra_fasta.
+            extra_ids = dict()
+            if extra_fasta:
+                with open_maybe_decompress(extra_fasta) as ef:
+                    for record in SeqIO.parse(ef, 'fasta'):
+                        if record.id in extra_ids:
+                            print(f"Fasta ID '{record.id}' has already been used in {extra_fasta}, discarding duplicate.", file=sys.stderr)
+                        else:
+                            extra_ids[record.id] = True
+                            if not passes_seq_filter(record, min_length, max_N_proportion):
+                                continue
+                            record.description = record.id
+                            nextclade_proc.stdin.write(record_to_fasta_bytes(record))
+            # genbank_fasta has already been filtered for length & Ns, but discard duplicates
+            with open_maybe_decompress(genbank_fasta) as gf:
+                for record in SeqIO.parse(gf, 'fasta'):
+                    if record.id in extra_ids:
+                        print(f"GenBank ID '{record.id}' was already used in {extra_fasta}, discarding duplicate.", file=sys.stderr)
+                    else:
+                        nextclade_proc.stdin.write(record_to_fasta_bytes(record))
+            nextclade_proc.stdin.close()
             # Write faToVcf's output to gzip file
             for chunk in iter(lambda: fatovcf_proc.stdout.read(8192), b''):
                 vcf_out.write(chunk)
@@ -141,7 +200,7 @@ def run_usher_sampled(tree, vcf):
     pb_out = 'usher_sampled.pb.gz'
     command = ['usher-sampled', '-A', '-e', '5', '-t', tree, '-v', vcf, '-o', pb_out,
                '--optimization_radius', '0', '--batch_size_per_process', '100']
-    run_command(command)
+    run_command(command, stdout_filename='usher-sampled.out.log', stderr_filename='usher-sampled.err.log')
     return pb_out
 
 def run_matoptimize(pb_file, vcf_file):
@@ -149,7 +208,7 @@ def run_matoptimize(pb_file, vcf_file):
     pb_out = 'optimized.pb.gz'
     command = ['matOptimize', '-m', '0.00000001', '-M', '1',
                '-i', pb_file, '-v', vcf_file, '-o', pb_out]
-    run_command(command)
+    run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log')
     return pb_out
 
 def sanitize_name(name):
@@ -213,7 +272,7 @@ def rename_seqs(pb_in, data_report_tsv):
             r_out.write("\t".join([accession, name]) + '\n')
             m_out.write(name + '\t' + '\t'.join(fields))
     command = ['matUtils', 'mask', '-i', pb_in, '--rename-samples', rename_out, '-o', pb_out]
-    run_command(command)
+    run_command(command, stdout_filename='matUtils.rename.out.log', stderr_filename='matUtils.rename.err.log')
     return rename_out, metadata_out, pb_out
 
 def get_header(tsv_in):
@@ -228,7 +287,7 @@ def usher_to_taxonium(pb_in, metadata_in):
     columns = ','.join(get_header(metadata_in))
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
                '--columns', columns, '--output', jsonl_out]
-    run_command(command)
+    run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log')
     return jsonl_out    
 
 def main():
@@ -243,6 +302,7 @@ def main():
     assembly_id = config['refseq_assembly']
     taxid = config['taxonomy_id']
     workdir = config['workdir']
+    extra_fasta = config['extra_fasta']
     refseq_zip = f"{refseq_acc}.zip"
     genbank_zip = f"genbank_{taxid}.zip"
 
@@ -260,7 +320,7 @@ def main():
     max_N_proportion = 0.25
     print(f"Using min_length_proportion={min_length_proportion} ({min_length} bases) and max_N_proportion={max_N_proportion}")
     genbank_fasta, data_report = unpack_genbank_zip(genbank_zip, min_length, max_N_proportion)
-    msa_vcf = align_sequences(refseq_fasta, genbank_fasta)
+    msa_vcf = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, min_length, max_N_proportion)
     empty_tree = make_empty_tree()
     preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
     opt_tree = run_matoptimize(preopt_tree, msa_vcf)

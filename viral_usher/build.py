@@ -1,10 +1,13 @@
-# 'build' subcommand
+# 'build' subcommand: build a tree according to parameters in config file
+
+import datetime
 import docker
+import filecmp
 import os
 import shutil
 import subprocess
 import sys
-from .config import parse_config
+from .config import parse_config, write_config
 
 docker_image = 'angiehinrichs/viral_usher'
 docker_platform = 'linux/amd64'
@@ -23,6 +26,37 @@ def check_docker_command():
         return False
     return True
 
+def maybe_copy_to_workdir(filepath, workdir):
+    """Return filepath's relative path within workdir, copying the file into workdir if necessary."""
+    basename = os.path.basename(filepath)
+    dirname = os.path.dirname(filepath)
+    dirname_abs = os.path.abspath(dirname)
+    workdir_abs = os.path.abspath(workdir)
+    if dirname_abs == workdir_abs:
+        return basename
+    else:
+        if dirname_abs.startswith(workdir_abs + '/'):
+            relpath = dirname_abs.removeprefix(workdir_abs + '/')
+            relname = relpath + '/' + basename
+            return relname
+        else:
+            workdir_file = workdir + '/' + basename
+            if os.path.exists(workdir_file):
+                if not filecmp.cmp(filepath, workdir_file, shallow=False):
+                    print(f"File {filepath} is specified, but workdir file {workdir_file} already exists and is not the same", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                shutil.copy(filepath, workdir)
+            return basename
+
+def rewrite_config(config, workdir):
+    """Make a new timestamped config file in workdir that contains the given config settings"""
+    now = datetime.datetime.now()
+    new_name = 'local_config.' + now.strftime("%Y-%m-%d_%H-%M-%S") + '.toml'
+    new_path = workdir + '/' + new_name
+    write_config(config, new_path)
+    return new_name
+
 def handle_build(args):
     if not check_docker_command():
         sys.exit(1)
@@ -32,25 +66,45 @@ def handle_build(args):
     user_id = os.getuid()
     group_id = os.getgid()
     docker_client = docker.from_env()
-    config_dirname = os.path.dirname(args.config)
-    config_basename = os.path.basename(args.config)
-    if os.path.abspath(config_dirname) != os.path.abspath(workdir):
-        #TODO make init write config file in workdir
-        # -- or copy to a unique file name in workdir and use that in the docker run.
-        print(f"Config file needs to be present in build directory ({workdir}); copying {args.config} into build directory.")
-        shutil.copy(args.config, workdir)
+    # The config path passed to the script in the docker image must be relative to workdir
+    # because that is the only directory visible to the script.
+    config_rel = maybe_copy_to_workdir(args.config, workdir)
+    # If extra_fasta is given, make sure it will be available in workdir and that
+    # the config used by the docker image script uses its relative path in workdir.
+    config_changed = False
+    extra_fasta = config['extra_fasta']
+    if extra_fasta:
+        extra_fasta_rel = maybe_copy_to_workdir(extra_fasta, workdir)
+        if extra_fasta_rel != extra_fasta:
+            config['extra_fasta'] = extra_fasta_rel
+            config_changed = True
+    if config_changed:
+        config_rel = rewrite_config(config, workdir)
 
     print(f"Running docker image {docker_image}")
     try:
-        docker_client.containers.run(docker_image,
-                                    platform=docker_platform,
-                                    remove=True,
-                                    network_mode='host',
-                                    user=':'.join([str(user_id), str(group_id)]),
-                                    volumes=[ ':'.join([workdir, docker_workdir]) ],
-                                    command=["viral_usher_build", "--config", config_basename])
+        container = docker_client.containers.run(
+            docker_image,
+            platform=docker_platform,
+            remove=True,
+            network_mode='host',
+            user=':'.join([str(user_id), str(group_id)]),
+            volumes=[ ':'.join([workdir, docker_workdir]) ],
+            command=["viral_usher_build", "--config", config_rel],
+            detach=True,  # Run container in background so we can stream logs
+            stdout=True,
+            stderr=True,
+            tty=True
+        )
+        # Stream logs in real time
+        for line in container.logs(stream=True):
+            print(line.decode(), end='')
+        exit_code = container.wait()['StatusCode']
+        if exit_code != 0:
+            print(f"docker container {docker_image} failed with exit code {exit_code}", file=sys.stderr)
+            sys.exit(exit_code)
     except (docker.errors.ContainerError) as e:
-        print(f"docker container {docker_image} failed:\n{e}")
+        print(f"docker container {docker_image} failed:\n{e}", file=sys.stderr)
         sys.exit(1)
     print(f"Success -- you can view {workdir}/tree.json.gz in taxonium now.")
     #TODO check results, maybe save a log file?

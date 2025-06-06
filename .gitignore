@@ -11,12 +11,17 @@ build
 *.zip
 *.fasta
 *.fasta.xz
+*.fa
+*.fa.gz
+*.fa.xz
 *.gbff
 *.tsv
 *.tsv.gz
 *.txt
+*.log
 *.vcf
 *.vcf.gz
+changed_nodes
 *.nh
 *.nwk
 *.pb

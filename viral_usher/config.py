@@ -1,3 +1,4 @@
+import sys
 import tomllib
 
 def read_config(config_path):
@@ -37,3 +38,10 @@ def parse_config(config_path):
         print(f"Error in config file {config_path}: {e}", file=sys.stderr)
         raise
     return config
+
+def write_config(config, config_path):
+    """Write a config TOML file to the specified path."""
+    with open(config_path, 'w') as f:
+        print(f"# viral_usher config for RefSeq {config['refseq_acc']}, taxonomy ID {config['taxonomy_id']}\n", file=f)
+        for key in config:
+            print(f"{key} = '{config[key]}'", file=f)
