@@ -31,6 +31,7 @@
 - Docker
 - Python 3.11+
 - Python libraries: `biopython`, `requests`, `docker`
+- Internet access (NCBI, DockerHub)
 
 ---
 
