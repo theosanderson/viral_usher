@@ -1,15 +1,12 @@
 [project]
 name = "viral_usher"
-version = "0.1.0"
+version = "0.2.0.dev"
 description = "Easily configure and run a pipeline to build a tree of virus genomes using UShER"
 authors = [{ name = "Angie Hinrichs", email = "hinrichs@ucsc.edu" }]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["requests", "biopython", "docker"]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["viral_usher"]
-
 [project.scripts]
 viral_usher = "viral_usher.cli:main"
+viral_usher_build = "viral_usher.viral_usher_build:main"

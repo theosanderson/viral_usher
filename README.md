@@ -30,7 +30,7 @@
 ## Requirements
 - Docker
 - Python 3.11+
-- Python libraries: `docker`
+- Python libraries: `biopython`, `requests`, `docker`
 
 ---
 

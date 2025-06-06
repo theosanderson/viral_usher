@@ -16,8 +16,8 @@ RUN cd usher \
 
 WORKDIR /app
 
-COPY viral_usher_core .
-COPY viral_usher/config.py viral_usher/ncbi_helper.py ./viral_usher_build/
+COPY pyproject.toml .
+COPY viral_usher viral_usher
 
 # Nextclade is a Rust app so all we need to do is grab its binary.
 # nextclade_to_maple is my noob Rust app so for some reason it's necessary to unzip a .zip.
