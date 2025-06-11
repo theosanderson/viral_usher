@@ -60,7 +60,8 @@ That's all!  viral_usher will create the following files in workdir (`chikunguny
 - a metadata file in TSV format (metadata.tsv.gz)
 - a Taxonium tree file that you can view using https://taxonium.org/ (tree.jsonl.gz)
 
-To view the example Chikungunya virus tree in Taxonium, [click here](https://taxonium.org/?protoUrl=https%3A%2F%2Fraw.githubusercontent.com%2FAngieHinrichs%2Fviral_usher%2Frefs%2Fheads%2Fmain%2Fexample%2Ftree.jsonl.gz&xType=x_dist).  Type or paste "hypothetical" into Taxonium's Name search input to find the sequences from example/hypothetical_chikungunya.fasta.
+To view the example Chikungunya virus tree in Taxonium, [click here](https://taxonium.org/?protoUrl=https%3A%2F%2Fraw.githubusercontent.com%2FAngieHinrichs%2Fviral_usher%2Frefs%2Fheads%2Fmain%2Fexample%2Ftree.jsonl.gz&xType=x_dist).  Type or copy-paste "hypothetical" into Taxonium's Name search input to find the sequences from example/hypothetical_chikungunya.fasta.
+
 ---
 
 ## 🧪 Development
