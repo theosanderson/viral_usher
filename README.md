@@ -34,21 +34,28 @@
 ## 🚀 Usage
 
 ### Create a config file with `viral_usher init`
-For interactive setup, with the script prompting you to make a series of selections:
+If you want to start by just naming a virus, and let viral_usher interactively help you identify the right reference sequence, Taxonomy ID etc., then simply run
    ```bash
    viral_usher init
    ```
-Or with command line options:
+and reply to the prompts.
+
+Alternatively, if you already know your parameters, then you can skip the interactive stuff by passing in command line options.  Run `viral_usher --help` to get a listing of options.  Here is an example that builds a tree for the Chikungunya virus using RefSeq [NC_004162.2](https://www.ncbi.nlm.nih.gov/nuccore/NC_004162.2), all genomes for the Taxonomy ID associated with NC_004162.2 ([37124](https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=Tree&id=37124&lvl=3&lin=f&keep=1&srchmode=1&unlock)), plus additional sequences from example/hypothetical_chikungunya.fasta (in this repository):
    ```bash
-   viral_usher init --refseq NC_004162.2 --workdir chikungunya --config chikungunya/config.toml
+   viral_usher init \
+       --refseq NC_004162.2 \
+       --workdir chikungunya \
+       --fasta example/hypothetical_chikungunya.fasta \
+       --config chikungunya/config.toml
    ```
 
 ### Build a tree using config file with `viral_usher build`:
+Continuing the Chikungunya virus example:
    ```bash
    viral_usher build --config chikungunya/config.toml
    ```
 
-That's all!  viral_usher will create the following files in workdir:
+That's all!  viral_usher will create the following files in workdir (`chikungunya` in our example):
 - a tree in UShER protobuf format (optimized.pb.gz)
 - a metadata file in TSV format (metadata.tsv.gz)
 - a Taxonium tree file that you can view using https://taxonium.org/ (tree.jsonl.gz)
