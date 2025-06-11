@@ -1,6 +1,7 @@
 import requests
 import logging
 import sys
+import time
 import json
 
 NCBI_DATASETS_V2_BASE = "https://api.ncbi.nlm.nih.gov/datasets/v2"
@@ -30,7 +31,8 @@ class NcbiHelper:
             sys.exit(1)
 
     def get_request(self, url, params):
-        """Send a GET request, check the response, and return the JSON data."""
+        """Send a GET request, check the response, and return the JSON data.  Sleep to rate-limit."""
+        time.sleep(1)
         resp = requests.get(url, params=params)
         self.check_response(resp)
         return resp.json()
@@ -133,8 +135,15 @@ class NcbiHelper:
         """Look up the Taxonomy ID for the given RefSeq ID using the NCBI EUtils API and Assembly database."""
         refseq_gi = self.esearch_request_one("nuccore", f"{refseq_id}[Accession]")
         if not refseq_gi:
+            self.logger.warning(f"No RefSeq GI number for accession {refseq_id}")
             return None
-        return self.esummary_request_one("assembly", refseq_gi).get("taxid")
+        nuc_record = self.esummary_request_one("nuccore", refseq_gi)
+        taxid = nuc_record.get('taxid')
+        if not taxid:
+            self.logger.warning(f"No nuccore taxid for RefSeq GI number {refseq_gi}, trying assembly database")
+            assembly_record = self.esummary_request_one("assembly", refseq_gi)
+            taxid = assembly_record.get("taxid")
+        return taxid
 
     def download_zip_file(self, url, filename):
         """Download a zip file from the given URL and save it to the specified filename."""
