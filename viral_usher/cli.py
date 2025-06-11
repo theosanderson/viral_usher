@@ -11,8 +11,9 @@ def main():
     init_parser.add_argument("-r", "--refseq", help="RefSeq accession to use as reference/root, if known")
     init_parser.add_argument("-t", "--taxonomy_id", help="NCBI Taxonomy ID of the viral species, if known")
     init_parser.add_argument("-s", "--species", help="Viral species name (if Taxonomy ID is not known)")
-    init_parser.add_argument("-f", "--extra_fasta", help="Additional sequences to include in tree")
-    init_parser.add_argument("--config", type=str, help="Path to config file output")
+    init_parser.add_argument("-f", "--fasta", help="Additional sequences to include in tree")
+    init_parser.add_argument("-w", "--workdir", help="Directory in which tree files will be built")
+    init_parser.add_argument("-c", "--config", type=str, help="Path to config file output")
 
     # Build subcommand
     build_parser = subparsers.add_parser("build", help="Run the pipeline to download sequences and build a tree")
