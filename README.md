@@ -31,7 +31,7 @@
 
 ---
 
-## 🚀 Usage
+## 🚀 Quickstart
 
 ### Create a config file with `viral_usher init`
 If you want to start by just naming a virus, and let viral_usher interactively help you identify the right reference sequence, Taxonomy ID etc., then simply run
@@ -40,7 +40,7 @@ If you want to start by just naming a virus, and let viral_usher interactively h
    ```
 and reply to the prompts.
 
-Alternatively, if you already know your parameters, then you can skip the interactive stuff by passing in command line options.  Run `viral_usher --help` to get a listing of options.  Here is an example that builds a tree for the Chikungunya virus using RefSeq [NC_004162.2](https://www.ncbi.nlm.nih.gov/nuccore/NC_004162.2), all genomes for the Taxonomy ID associated with NC_004162.2 ([37124](https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=Tree&id=37124&lvl=3&lin=f&keep=1&srchmode=1&unlock)), plus additional sequences from example/hypothetical_chikungunya.fasta (in this repository):
+Alternatively, if you already know your parameters, then you can skip the interactive stuff by passing in command line options.  Run `viral_usher --help` to get a listing of options.  Here is an example that builds a tree for the Chikungunya virus using RefSeq [NC_004162.2](https://www.ncbi.nlm.nih.gov/nuccore/NC_004162.2), all genomes available from GenBank for the Taxonomy ID associated with NC_004162.2 (Taxonomy ID [37124](https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=Tree&id=37124&lvl=3&lin=f&keep=1&srchmode=1&unlock)), plus additional sequences from example/hypothetical_chikungunya.fasta (in this repository):
    ```bash
    viral_usher init \
        --refseq NC_004162.2 \
@@ -60,6 +60,7 @@ That's all!  viral_usher will create the following files in workdir (`chikunguny
 - a metadata file in TSV format (metadata.tsv.gz)
 - a Taxonium tree file that you can view using https://taxonium.org/ (tree.jsonl.gz)
 
+To view the example Chikungunya virus tree in Taxonium, [click here](https://taxonium.org/?protoUrl=https%3A%2F%2Fraw.githubusercontent.com%2FAngieHinrichs%2Fviral_usher%2Frefs%2Fheads%2Fmain%2Fexample%2Ftree.jsonl.gz&xType=x_dist).  Type or paste "hypothetical" into Taxonium's Name search input to find the sequences from example/hypothetical_chikungunya.fasta.
 ---
 
 ## 🧪 Development
