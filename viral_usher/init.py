@@ -28,7 +28,7 @@ def prompt_int_choice(prompt, min_value=1, max_value=None):
 
 def prompt_taxonomy_id(ncbi, species_name):
     """Prompt the user to select a Taxonomy ID from the list of matches for a given species name."""
-    matches = ncbi.get_taxonomy_entries(species_name)
+    matches = ncbi.get_taxonomy_entries('"' + species_name + '"')
     if matches:
         print(f"\nFound the following Taxonomy IDs for '{species_name}':")
         for idx, entry in enumerate(matches):
