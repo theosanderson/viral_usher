@@ -1,10 +1,18 @@
 import argparse
+import importlib.metadata
+import sys
 from .init import handle_init
 from .build import handle_build
 
 def main():
-    parser = argparse.ArgumentParser(prog="viral_usher")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    viral_usher_version = importlib.metadata.version('viral_usher')
+    parser = argparse.ArgumentParser(
+        prog="viral_usher",
+        description=f"viral_usher {viral_usher_version} — Build viral phylogenies from NCBI data.",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+        )
+    parser.add_argument("-v", "--version", action="store_true", help="display viral_usher version and exit")
+    subparsers = parser.add_subparsers(dest="command")
 
     # Init subcommand
     init_parser = subparsers.add_parser("init", help="Initialize configuration for a new species/taxon and reference")
@@ -19,6 +27,26 @@ def main():
     build_parser = subparsers.add_parser("build", help="Run the pipeline to download sequences and build a tree")
     build_parser.add_argument("--config", type=str, required=True, help="Path to config file input")
 
+    args = parser.parse_args()
+
+    # Parse known args to check for -h or -v
+    args, unknown = parser.parse_known_args()
+
+    # Check for -v/--version
+    if args.version:
+        print(f"viral_usher {viral_usher_version}")
+        sys.exit(0)
+
+    # If -h/--help is present, let argparse print help and exit
+    if  "-h" in sys.argv or "--help" in sys.argv:
+        print(f"unknown is {unknown}\n\n", file=sys.stderr)
+        parser.parse_args()
+
+    # A subcommand is required unless -h or -v were given
+    if not args.command:
+        parser.error("A subcommand {init,build} is required unless -h/--help or -v/--version is given.")
+
+    # Parse all args for subcommand handlers
     args = parser.parse_args()
 
     if args.command == "init":
