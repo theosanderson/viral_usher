@@ -37,6 +37,8 @@ and reply to the prompts.
 
 Alternatively, if you already know your parameters, then you can skip the interactive stuff by passing in command line options.  Run `viral_usher --help` to get a listing of options.  Here is an example that builds a tree for the Chikungunya virus using RefSeq [NC_004162.2](https://www.ncbi.nlm.nih.gov/nuccore/NC_004162.2), all genomes available from GenBank for the Taxonomy ID associated with NC_004162.2 (Taxonomy ID [37124](https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=Tree&id=37124&lvl=3&lin=f&keep=1&srchmode=1&unlock)), plus additional sequences from example/hypothetical_chikungunya.fasta (in this repository):
    ```bash
+   git clone https://github.com/AngieHinrichs/viral_usher.git
+   cd viral_usher
    viral_usher init \
        --refseq NC_004162.2 \
        --workdir chikungunya \
