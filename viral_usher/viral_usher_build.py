@@ -3,7 +3,6 @@ import gzip
 import io
 import json
 import lzma
-import os
 import re
 import shutil
 import subprocess
@@ -12,6 +11,7 @@ import zipfile
 from Bio import SeqIO
 from .config import parse_config
 from . import ncbi_helper
+
 
 def run_command(command, stdout_filename=None, stderr_filename=None, fail_ok=False):
     """Run a command, complain and raise if it fails (unless fail_ok, then just return False)"""
@@ -23,7 +23,7 @@ def run_command(command, stdout_filename=None, stderr_filename=None, fail_ok=Fal
     if stderr_filename:
         stderr = open(stderr_filename, 'w')
     try:
-        result = subprocess.run(command, check=True, stdout=stdout, stderr=stderr)
+        subprocess.run(command, check=True, stdout=stdout, stderr=stderr)
         success = True
         print(f"{command[0]} completed successfully")
     except subprocess.CalledProcessError as e:
@@ -42,6 +42,7 @@ def run_command(command, stdout_filename=None, stderr_filename=None, fail_ok=Fal
     if stderr:
         stderr.close()
     return success
+
 
 def unpack_refseq_zip(refseq_zip, refseq_acc):
     """Extract and rename the fasta and gbff files from the RefSeq zip."""
@@ -70,9 +71,11 @@ def unpack_refseq_zip(refseq_zip, refseq_acc):
             raise ValueError(f"Failed to find .gbff file in {refseq_zip}.")
     return fasta_path, gbff_path, length
 
+
 def passes_seq_filter(record, min_length, max_N_proportion):
     """Fasta record passes the filter if it is at least min_length bases and has at most max_N_proportion of Ns"""
     return len(record.seq) >= min_length and record.seq.count('N') / len(record.seq) <= max_N_proportion
+
 
 def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
     """Process the fasta and data_report.jsonl files from the GenBank zip,
@@ -126,6 +129,7 @@ def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
         raise ValueError(f"Failed to find data_report.jsonl file in {genbank_zip}.")
     return fasta_out_path, tsv_out_path
 
+
 def open_maybe_decompress(filename, mode='rt', encoding='utf-8'):
     """
     Open a file, automatically using gzip or lzma decompression based on the file extension.
@@ -138,11 +142,13 @@ def open_maybe_decompress(filename, mode='rt', encoding='utf-8'):
     else:
         return open(filename, mode, encoding=encoding)
 
+
 def record_to_fasta_bytes(record):
     """Convert a SeqRecord to FASTA-encoded bytes (utf-8)"""
     buf = io.StringIO()
     SeqIO.write(record, buf, 'fasta')
     return buf.getvalue().encode('utf-8')
+
 
 def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, min_length, max_N_proportion):
     """Run nextclade to align the filtered sequences to the reference, and pipe its output to faToVcf and gzip."""
@@ -193,6 +199,7 @@ def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, min_length, max_N_
     print(f"Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: {msa_vcf_gz}")
     return msa_vcf_gz
 
+
 def make_empty_tree():
     """Create an empty tree file to be used as a starting point for usher-sampled."""
     empty_tree_path = 'empty_tree.nwk'
@@ -200,6 +207,7 @@ def make_empty_tree():
         f.write("()\n")
     print(f"Created empty tree file: {empty_tree_path}")
     return empty_tree_path
+
 
 def run_usher_sampled(tree, vcf):
     """Build the tree.  Use docker --platform linux/amd64 so this will work even on Mac with ARM CPU. """
@@ -209,6 +217,7 @@ def run_usher_sampled(tree, vcf):
     run_command(command, stdout_filename='usher-sampled.out.log', stderr_filename='usher-sampled.err.log')
     return pb_out
 
+
 def run_matoptimize(pb_file, vcf_file):
     """Run matOptimize to clean up after usher-sampled"""
     pb_out = 'optimized.pb.gz'
@@ -217,11 +226,12 @@ def run_matoptimize(pb_file, vcf_file):
     command = ['matOptimize', '-m', '0.00000001', '-M', '1',
                '-i', pb_file, '-v', vcf_file, '-o', pb_out]
     if not run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log', fail_ok=True):
-        print(f"matOptimize with VCF failed, trying again without VCF.")
+        print("matOptimize with VCF failed, trying again without VCF.")
         command = ['matOptimize', '-m', '0.00000001', '-M', '1',
-                    '-i', pb_file, '-o', pb_out]
+                   '-i', pb_file, '-o', pb_out]
         run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log')
     return pb_out
+
 
 def sanitize_name(name):
     """Replace characters that could cause trouble, such as spaces or Newick special characters,
@@ -229,6 +239,7 @@ def sanitize_name(name):
     for c in ['[', ']', '(', ')', ':', ';', ',', "'", ' ']:
         name = name.replace(c, '_')
     return name
+
 
 def rename_seqs(pb_in, data_report_tsv):
     """Rename sequence names in tree to include location, isolate name and date when available.
@@ -287,6 +298,7 @@ def rename_seqs(pb_in, data_report_tsv):
     run_command(command, stdout_filename='matUtils.rename.out.log', stderr_filename='matUtils.rename.err.log')
     return rename_out, metadata_out, pb_out
 
+
 def get_header(tsv_in):
     with gzip.open(tsv_in, 'rt') as tsv:
         header = tsv.readline().split('\t')
@@ -294,13 +306,15 @@ def get_header(tsv_in):
             header[idx] = field.strip()
     return header
 
+
 def usher_to_taxonium(pb_in, metadata_in):
     jsonl_out = "tree.jsonl.gz"
     columns = ','.join(get_header(metadata_in))
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
                '--columns', columns, '--output', jsonl_out]
     run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log')
-    return jsonl_out    
+    return jsonl_out
+
 
 def main():
     parser = argparse.ArgumentParser(prog="viral_usher_build")
@@ -313,7 +327,6 @@ def main():
     refseq_acc = config['refseq_acc']
     assembly_id = config['refseq_assembly']
     taxid = config['taxonomy_id']
-    workdir = config['workdir']
     extra_fasta = config.get('extra_fasta', '')
     refseq_zip = f"{refseq_acc}.zip"
     genbank_zip = f"genbank_{taxid}.zip"
@@ -337,7 +350,8 @@ def main():
     preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
     opt_tree = run_matoptimize(preopt_tree, msa_vcf)
     rename_tsv, metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report)
-    taxonium = usher_to_taxonium(viz_tree, metadata_tsv)
+    usher_to_taxonium(viz_tree, metadata_tsv)
+
 
 if __name__ == "__main__":
     main()

@@ -10,6 +10,7 @@ NCBI_EUTILS_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.
 NCBI_EUTILS_SUMMARY_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
 NCBI_EUTILS_ELINK_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi"
 
+
 class NcbiHelper:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ class NcbiHelper:
         """Use ESearch to search for term in db.  Return a list of GI numbers."""
         data = self.eutils_request(NCBI_EUTILS_SEARCH_URL, {"db": db, "term": term})
         return data.get("esearchresult", {}).get("idlist", [])
-    
+
     def esearch_request_one(self, db, term):
         """Use ESearch to search for term in db.  Warn if there is not exactly one result. Return the first GI number."""
         idlist = self.esearch_request(db, term)
@@ -155,7 +156,7 @@ class NcbiHelper:
                 if chunk:
                     f.write(chunk)
         return filename
-    
+
     def download_refseq(self, assembly_id, filename):
         """Download RefSeq using the NCBI Datasets API which requires the GCF_* assembly ID."""
         url = f"{NCBI_DATASETS_V2_BASE}/genome/accession/{assembly_id}/download?include_annotation_type=GENOME_FASTA&include_annotation_type=GENOME_GBFF&filename={filename}"
@@ -165,4 +166,3 @@ class NcbiHelper:
         """Download all GenBank genomes for the Taxonomy ID.  Return the .zip file name."""
         url = f"{NCBI_DATASETS_V2_BASE}/virus/taxon/{taxid}/genome/download?include_sequence=GENOME&aux_report=DATASET_REPORT&aux_report=BIOSAMPLE_REPORT&filename={filename}"
         return self.download_zip_file(url, filename)
-

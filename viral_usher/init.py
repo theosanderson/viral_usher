@@ -3,11 +3,11 @@
 import sys
 import os
 import importlib.metadata
-import json
 import re
 import logging
 from . import ncbi_helper
 from .config import write_config
+
 
 def prompt_int_choice(prompt, min_value=1, max_value=None):
     """Get an integer choice from the user, with optional min and max values.
@@ -26,6 +26,7 @@ def prompt_int_choice(prompt, min_value=1, max_value=None):
                 sys.exit(0)
             print("Invalid input. Please enter a number.")
 
+
 def prompt_taxonomy_id(ncbi, species_name):
     """Prompt the user to select a Taxonomy ID from the list of matches for a given species name."""
     matches = ncbi.get_taxonomy_entries('"' + species_name + '"')
@@ -38,6 +39,7 @@ def prompt_taxonomy_id(ncbi, species_name):
     else:
         print(f"\nNo matches found for '{species_name}'.")
         sys.exit(1)
+
 
 def prompt_refseq_id(ncbi, taxid):
     """Prompt the user to select a RefSeq ID from the list of available IDs for a given Taxonomy ID."""
@@ -55,6 +57,7 @@ def prompt_refseq_id(ncbi, taxid):
         print(f"\nNo RefSeq IDs found for Taxonomy ID {taxid}.")
         sys.exit(1)
 
+
 def check_optional_file_readable(filename):
     """If filename is empty, that's fine; if non-empty, make sure it's a readable file"""
     if filename:
@@ -64,11 +67,12 @@ def check_optional_file_readable(filename):
             return False, f"Sorry, file '{filename}' does not appear to be a regular file"
         else:
             try:
-                with open(filename, "r") as f:
-                    pass
+                f = open(filename, "r")
+                f.close()
             except IOError:
                 return False, f"Sorry, unable to read file '{filename}'."
     return True, None
+
 
 def check_dir_exists_or_creatable(dirname):
     """If dirname exists, all good; otherwise try to create it.  Return False and error message if unable."""
@@ -79,6 +83,7 @@ def check_dir_exists_or_creatable(dirname):
         except:
             return False, f"Sorry, can't create directory path '{dirname}', please enter a different one."
     return True, None
+
 
 def prompt_with_checker(prompt, default, check_function):
     """Prompt the user for a value and check their answer.  If there's a problem then explain
@@ -97,6 +102,7 @@ def prompt_with_checker(prompt, default, check_function):
             print(error_message)
     return answer
 
+
 def check_write_config(config, config_path):
     """Return True if able to write config to config_path, False otherwise."""
     try:
@@ -104,6 +110,7 @@ def check_write_config(config, config_path):
         return True
     except:
         return False
+
 
 def handle_init(args):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -115,7 +122,7 @@ def handle_init(args):
             if taxid != args.taxonomy_id:
                 if taxid is None:
                     print(f"No taxid for refseq GI for {refseq_id}")
-                #TODO: it's not a problem if the two taxids have an ancestor-descendant relationship -- look it up.
+                # TODO: it's not a problem if the two taxids have an ancestor-descendant relationship -- look it up.
                 print(f"\nNOTE: RefSeq ID {refseq_id} is associated with Taxonomy ID {taxid}, not the provided Taxonomy ID {args.taxonomy_id}.\n")
                 taxid = args.taxonomy_id
     elif args.taxonomy_id:

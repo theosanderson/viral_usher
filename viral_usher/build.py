@@ -13,18 +13,20 @@ docker_image = 'angiehinrichs/viral_usher'
 docker_platform = 'linux/amd64'
 docker_workdir = '/data'
 
+
 def check_docker_command():
     try:
-        result = subprocess.run(['docker', '--help'], check=True, capture_output=True)
+        subprocess.run(['docker', '--help'], check=True, capture_output=True)
     except:
-        print(f"\nUnable to run 'docker --help' -- please install Docker from https://www.docker.com/ and try again.\n", file=sys.stderr)
+        print("\nUnable to run 'docker --help' -- please install Docker from https://www.docker.com/ and try again.\n", file=sys.stderr)
         return False
     try:
-        result = subprocess.run(['docker', 'images'], check=True, capture_output=True)
+        subprocess.run(['docker', 'images'], check=True, capture_output=True)
     except:
-        print(f"\nUnable to run 'docker --images' -- please make sure the docker daemon is running (e.g. on a Mac, start the Docker app)\n", file=sys.stderr)
+        print("\nUnable to run 'docker --images' -- please make sure the docker daemon is running (e.g. on a Mac, start the Docker app)\n", file=sys.stderr)
         return False
     return True
+
 
 def image_created_within_last_day(image: docker.models.images.Image):
     """Return True if the Docker image object was created within the past 24 hours"""
@@ -32,6 +34,7 @@ def image_created_within_last_day(image: docker.models.images.Image):
     created_at = datetime.datetime.strptime(created_at_str[:26], "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=datetime.timezone.utc)
     now = datetime.datetime.now(datetime.timezone.utc)
     return (now - created_at) <= datetime.timedelta(days=1)
+
 
 def maybe_pull_docker_image(client: docker.DockerClient, image_name: str):
     """If image does not already exist locally, or is more than a day old, pull it."""
@@ -47,6 +50,7 @@ def maybe_pull_docker_image(client: docker.DockerClient, image_name: str):
             need_pull = True
     if need_pull:
         client.images.pull(image_name)
+
 
 def maybe_copy_to_workdir(filepath, workdir):
     """Return filepath's relative path within workdir, copying the file into workdir if necessary."""
@@ -71,6 +75,7 @@ def maybe_copy_to_workdir(filepath, workdir):
                 shutil.copy(filepath, workdir)
             return basename
 
+
 def rewrite_config(config, workdir):
     """Make a new timestamped config file in workdir that contains the given config settings"""
     now = datetime.datetime.now()
@@ -78,6 +83,7 @@ def rewrite_config(config, workdir):
     new_path = workdir + '/' + new_name
     write_config(config, new_path)
     return new_name
+
 
 def handle_build(args):
     if not check_docker_command():
@@ -112,7 +118,7 @@ def handle_build(args):
             remove=True,
             network_mode='host',
             user=':'.join([str(user_id), str(group_id)]),
-            volumes=[ ':'.join([workdir, docker_workdir]) ],
+            volumes=[':'.join([workdir, docker_workdir])],
             command=["viral_usher_build", "--config", config_rel],
             detach=True,  # Run container in background so we can stream logs
             stdout=True,

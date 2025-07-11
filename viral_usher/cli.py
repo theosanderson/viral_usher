@@ -4,6 +4,7 @@ import sys
 from .init import handle_init
 from .build import handle_build
 
+
 def main():
     viral_usher_version = importlib.metadata.version('viral_usher')
     parser = argparse.ArgumentParser(
@@ -38,7 +39,7 @@ def main():
         sys.exit(0)
 
     # If -h/--help is present, let argparse print help and exit
-    if  "-h" in sys.argv or "--help" in sys.argv:
+    if "-h" in sys.argv or "--help" in sys.argv:
         print(f"unknown is {unknown}\n\n", file=sys.stderr)
         parser.parse_args()
 
@@ -56,6 +57,7 @@ def main():
     else:
         parser.print_help()
         exit(1)
+
 
 if __name__ == "__main__":
     main()
