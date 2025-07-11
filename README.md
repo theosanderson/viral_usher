@@ -69,8 +69,8 @@ To view the example Chikungunya virus tree in Taxonium, [click here](https://tax
 ### Install dev dependencies
 
 ```bash
-pip install -e .
+pip install -e .[dev]
 ```
 
 ### Run tests
-someday
+pytest

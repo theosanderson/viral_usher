@@ -1,0 +1,7 @@
+# viral_usher config for RefSeq NC_035889.1, taxonomy ID 64320
+
+viral_usher_version = '0.2.0'
+refseq_acc = 'NC_035889.1'
+refseq_assembly = 'GCF_002366285.1'
+taxonomy_id = '64320'
+extra_fasta = ''

@@ -9,6 +9,7 @@ build
 *.swp
 *.toml
 !pyproject.toml
+!tests/fixtures/*.toml
 *.zip
 *.fasta
 *.fasta.xz
