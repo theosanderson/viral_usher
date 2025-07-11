@@ -6,6 +6,20 @@ authors = [{ name = "Angie Hinrichs", email = "hinrichs@ucsc.edu" }]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["requests", "biopython", "docker"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICENSE"]
+
+[project.urls]
+Homepage = "https://github.com/AngieHinrichs/viral_usher"
+Issues = "https://github.com/AngieHinrichs/viral_usher/issues"
+
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
