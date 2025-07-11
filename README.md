@@ -1,6 +1,6 @@
 # viral_usher
 
-**Viral Usher** is a command-line tool to set up and run a pipeline to build an [UShER](https://usher-wiki.readthedocs.io/en/latest/) tree for a new viral species (or type, subtype, etc.) using genomes downloaded from [NCBI](https://www.ncbi.nlm.nih.gov/).
+**viral_usher** is a command-line tool to set up and run a pipeline to build an [UShER](https://usher-wiki.readthedocs.io/en/latest/) tree for a new viral species (or type, subtype, etc.) using genomes downloaded from [NCBI](https://www.ncbi.nlm.nih.gov/).
 
 ---
 
