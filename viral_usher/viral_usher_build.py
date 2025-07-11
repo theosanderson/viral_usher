@@ -13,8 +13,9 @@ from Bio import SeqIO
 from .config import parse_config
 from . import ncbi_helper
 
-def run_command(command, stdout_filename=None, stderr_filename=None):
-    """Run a command, complain and raise if it fails"""
+def run_command(command, stdout_filename=None, stderr_filename=None, fail_ok=False):
+    """Run a command, complain and raise if it fails (unless fail_ok, then just return False)"""
+    success = False
     stdout = None
     stderr = None
     if stdout_filename:
@@ -23,19 +24,24 @@ def run_command(command, stdout_filename=None, stderr_filename=None):
         stderr = open(stderr_filename, 'w')
     try:
         result = subprocess.run(command, check=True, stdout=stdout, stderr=stderr)
+        success = True
         print(f"{command[0]} completed successfully")
     except subprocess.CalledProcessError as e:
-        if e.stderr:
-            print(f"{command[0]} failed: {e.stderr}\n{command}", file=sys.stderr)
-        elif stderr_filename:
-            print(f"{command[0]} failed, see {stderr_filename}\n{command}", file=sys.stderr)
+        if fail_ok:
+            pass
         else:
-            print(f"{command[0]} failed\n{command}", file=sys.stderr)
-        raise
+            if e.stderr:
+                print(f"{command[0]} failed: {e.stderr}\n{command}", file=sys.stderr)
+            elif stderr_filename:
+                print(f"{command[0]} failed, see {stderr_filename}\n{command}", file=sys.stderr)
+            else:
+                print(f"{command[0]} failed\n{command}", file=sys.stderr)
+            raise
     if stdout:
         stdout.close()
     if stderr:
         stderr.close()
+    return success
 
 def unpack_refseq_zip(refseq_zip, refseq_acc):
     """Extract and rename the fasta and gbff files from the RefSeq zip."""
@@ -206,9 +212,15 @@ def run_usher_sampled(tree, vcf):
 def run_matoptimize(pb_file, vcf_file):
     """Run matOptimize to clean up after usher-sampled"""
     pb_out = 'optimized.pb.gz'
+    # Try with VCF, which is less tested but should give better results because it includes
+    # info about which bases are ambiguous or N.  That info is lost when usher imputes values.
     command = ['matOptimize', '-m', '0.00000001', '-M', '1',
                '-i', pb_file, '-v', vcf_file, '-o', pb_out]
-    run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log')
+    if not run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log', fail_ok=True):
+        print(f"matOptimize with VCF failed, trying again without VCF.")
+        command = ['matOptimize', '-m', '0.00000001', '-M', '1',
+                    '-i', pb_file, '-o', pb_out]
+        run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log')
     return pb_out
 
 def sanitize_name(name):
