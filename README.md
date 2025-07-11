@@ -19,14 +19,9 @@
 - [Docker](https://www.docker.com/)
 - [Python](https://www.python.org/) version 3.11 or later (we highly recommend using an environment manager such as [venv](https://docs.python.org/3/library/venv.html), [miniconda](https://www.anaconda.com/docs/getting-started/miniconda/main), [mamba](https://mamba.readthedocs.io/en/latest/installation/mamba-installation.html) etc.)
 
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/AngieHinrichs/viral_usher.git
-   cd viral_usher
-   ```
-2. Install the package (again, we highly recommended using an environment manager):
+1. Install with pip (again, we highly recommended using an environment manager):
     ```bash
-    pip install .
+    pip install viral_usher
     ```
 
 ---
@@ -66,14 +61,14 @@ To view the example Chikungunya virus tree in Taxonium, [click here](https://tax
 
 ## 🧪 Development
 
-### Install dev dependencies
-
 ```bash
+# Clone the repo
+git clone https://github.com/AngieHinrichs/viral_usher.git
+cd viral_usher
+
+# Install dev dependencies
 pip install -e .[dev]
-```
 
-### Run tests
-
-```bash
+# Run tests
 pytest
 ```
