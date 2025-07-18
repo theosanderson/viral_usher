@@ -49,7 +49,7 @@ def maybe_pull_docker_image(client: docker.DockerClient, image_name: str):
             print(f"Pulling latest version of docker image {image_name} from DockerHub...")
             need_pull = True
     if need_pull:
-        client.images.pull(image_name)
+        client.images.pull(image_name, platform=docker_platform)
 
 
 def maybe_copy_to_workdir(filepath, workdir):
