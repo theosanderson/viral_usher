@@ -150,14 +150,14 @@ def record_to_fasta_bytes(record):
     return buf.getvalue().encode('utf-8')
 
 
-def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, min_length, max_N_proportion):
+def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion):
     """Run nextclade to align the filtered sequences to the reference, and pipe its output to faToVcf and gzip."""
     msa_vcf_gz = 'msa.vcf.gz'
     # Set up the pipeline: | nextclade | faToVcf | gzip > msa.vcf.gz
     nextclade_cmd = [
-        'nextclade', 'run', '--input-ref', refseq_fasta, '--output-fasta', '/dev/stdout'
+        'nextclade', 'run', '--input-ref', refseq_fasta, '--include-reference', 'true', '--output-fasta', '/dev/stdout'
     ]
-    fatovcf_cmd = ['faToVcf', '-includeNoAltN', 'stdin', 'stdout']
+    fatovcf_cmd = ['faToVcf', '-includeNoAltN', '-ref=' + refseq_acc, 'stdin', 'stdout']
     with gzip.open(msa_vcf_gz, 'wb') as vcf_out:
         try:
             # Start nextclade
@@ -345,7 +345,7 @@ def main():
     max_N_proportion = 0.25
     print(f"Using min_length_proportion={min_length_proportion} ({min_length} bases) and max_N_proportion={max_N_proportion}")
     genbank_fasta, data_report = unpack_genbank_zip(genbank_zip, min_length, max_N_proportion)
-    msa_vcf = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, min_length, max_N_proportion)
+    msa_vcf = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion)
     empty_tree = make_empty_tree()
     preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
     opt_tree = run_matoptimize(preopt_tree, msa_vcf)
