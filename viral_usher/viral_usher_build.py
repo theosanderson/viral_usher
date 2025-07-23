@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from Bio import SeqIO
 from .config import parse_config
@@ -25,7 +26,6 @@ def run_command(command, stdout_filename=None, stderr_filename=None, fail_ok=Fal
     try:
         subprocess.run(command, check=True, stdout=stdout, stderr=stderr)
         success = True
-        print(f"{command[0]} completed successfully")
     except subprocess.CalledProcessError as e:
         if fail_ok:
             pass
@@ -91,18 +91,25 @@ def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
         for name in zip_ref.namelist():
             if name.endswith('.fna'):
                 # Filter fasta file and chop descriptions to get accession as name in nextclade
+                start_time = time.perf_counter()
+                record_count = 0
+                passed_count = 0
                 with io.TextIOWrapper(zip_ref.open(name, 'r'), encoding='utf-8') as fasta_in, lzma.open(fasta_out_path, 'wt') as fasta_out:
                     for record in SeqIO.parse(fasta_in, 'fasta'):
+                        record_count += 1
                         # Filter sequences by length and proportion of ambiguous characters
                         if not passes_seq_filter(record, min_length, max_N_proportion):
                             continue
+                        passed_count += 1
                         # Chop sequence name after first space to limit to accession only
                         record.description = record.id
                         SeqIO.write(record, fasta_out, 'fasta')
-                print(f"Wrote fasta file: {fasta_out_path}")
+                elapsed_time = time.perf_counter() - start_time
+                print(f"Processed {record_count} sequences from GenBank and wrote fasta file with {passed_count} sequences passing filters: {fasta_out_path} in {elapsed_time:.1f}s")
                 fasta_written = True
             elif name.endswith('data_report.jsonl'):
                 # Extract only the bits we want from data_report.jsonl to data_report.tsv
+                start_time = time.perf_counter()
                 with zip_ref.open(name) as jsonl_in, gzip.open(tsv_out_path, 'wt') as tsv_out:
                     # Write header
                     tsv_out.write("\t".join(["accession", "isolate", "location", "date", "length", "biosample", "submitter"]) + "\n")
@@ -120,8 +127,8 @@ def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
                         if submitter and submitter_country:
                             submitter = f"{submitter}, {submitter_country}"
                         tsv_out.write("\t".join([accession, isolate, location, date, str(length), biosample, submitter]) + "\n")
-
-                print(f"Wrote filtered TSV file: {tsv_out_path}")
+                elapsed_time = time.perf_counter() - start_time
+                print(f"Wrote metadata TSV file: {tsv_out_path} in {elapsed_time:.1f}s")
                 report_written = True
     if not fasta_written:
         raise ValueError(f"Failed to find .fna file in {genbank_zip}.")
@@ -153,6 +160,7 @@ def record_to_fasta_bytes(record):
 def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion):
     """Run nextclade to align the filtered sequences to the reference, and pipe its output to faToVcf and gzip."""
     msa_vcf_gz = 'msa.vcf.gz'
+    start_time = time.perf_counter()
     # Set up the pipeline: | nextclade | faToVcf | gzip > msa.vcf.gz
     nextclade_cmd = [
         'nextclade', 'run', '--input-ref', refseq_fasta, '--include-reference', 'true', '--output-fasta', '/dev/stdout'
@@ -196,7 +204,8 @@ def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_le
         except subprocess.CalledProcessError as e:
             print(f"nextclade | faToVcf failed: {e.stderr}", file=sys.stderr)
             raise
-    print(f"Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: {msa_vcf_gz}")
+    elapsed_time = time.perf_counter() - start_time
+    print(f"Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: {msa_vcf_gz} in {elapsed_time:.1f}s")
     return msa_vcf_gz
 
 
@@ -212,15 +221,19 @@ def make_empty_tree():
 def run_usher_sampled(tree, vcf):
     """Build the tree.  Use docker --platform linux/amd64 so this will work even on Mac with ARM CPU. """
     pb_out = 'usher_sampled.pb.gz'
+    start_time = time.perf_counter()
     command = ['usher-sampled', '-A', '-e', '5', '-t', tree, '-v', vcf, '-o', pb_out,
                '--optimization_radius', '0', '--batch_size_per_process', '100']
     run_command(command, stdout_filename='usher-sampled.out.log', stderr_filename='usher-sampled.err.log')
+    elapsed_time = time.perf_counter() - start_time
+    print(f"Ran usher-sampled in {elapsed_time:.1f}s")
     return pb_out
 
 
 def run_matoptimize(pb_file, vcf_file):
     """Run matOptimize to clean up after usher-sampled"""
     pb_out = 'optimized.pb.gz'
+    start_time = time.perf_counter()
     # Try with VCF, which is less tested but should give better results because it includes
     # info about which bases are ambiguous or N.  That info is lost when usher imputes values.
     command = ['matOptimize', '-m', '0.00000001', '-M', '1',
@@ -230,6 +243,8 @@ def run_matoptimize(pb_file, vcf_file):
         command = ['matOptimize', '-m', '0.00000001', '-M', '1',
                    '-i', pb_file, '-o', pb_out]
         run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log')
+    elapsed_time = time.perf_counter() - start_time
+    print(f"Ran matOptimize in {elapsed_time:.1f}s")
     return pb_out
 
 
@@ -247,6 +262,7 @@ def rename_seqs(pb_in, data_report_tsv):
     rename_out = "rename.tsv"
     metadata_out = "metadata.tsv.gz"
     pb_out = "viz.pb.gz"
+    start_time = time.perf_counter()
     with gzip.open(data_report_tsv, 'rt') as tsv_in, open(rename_out, 'w') as r_out, gzip.open(metadata_out, 'wt') as m_out:
         header = tsv_in.readline().split('\t')
         accession_idx = header.index('accession')
@@ -296,6 +312,8 @@ def rename_seqs(pb_in, data_report_tsv):
             m_out.write(name + '\t' + '\t'.join(fields))
     command = ['matUtils', 'mask', '-i', pb_in, '--rename-samples', rename_out, '-o', pb_out]
     run_command(command, stdout_filename='matUtils.rename.out.log', stderr_filename='matUtils.rename.err.log')
+    elapsed_time = time.perf_counter() - start_time
+    print(f"Ran matUtils to rename sequences for display in {elapsed_time:.1f}s")
     return rename_out, metadata_out, pb_out
 
 
@@ -309,10 +327,13 @@ def get_header(tsv_in):
 
 def usher_to_taxonium(pb_in, metadata_in):
     jsonl_out = "tree.jsonl.gz"
+    start_time = time.perf_counter()
     columns = ','.join(get_header(metadata_in))
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
                '--columns', columns, '--output', jsonl_out]
     run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log')
+    elapsed_time = time.perf_counter() - start_time
+    print(f"Ran usher_to_taxonium in {elapsed_time:.1f}s")
     return jsonl_out
 
 
