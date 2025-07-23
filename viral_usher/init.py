@@ -117,7 +117,7 @@ def handle_init(args):
     ncbi = ncbi_helper.NcbiHelper()
     if args.refseq:
         refseq_id = args.refseq
-        taxid = ncbi.get_taxid_for_refseq(refseq_id)
+        taxid = str(ncbi.get_taxid_for_refseq(refseq_id))
         if args.taxonomy_id:
             if taxid != args.taxonomy_id:
                 if taxid is None:
