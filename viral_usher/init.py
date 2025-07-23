@@ -112,6 +112,55 @@ def check_write_config(config, config_path):
         return False
 
 
+def get_user_fasta(args_fasta, is_interactive):
+    fasta = ''
+    if args_fasta is not None:
+        fasta = args_fasta
+        ok, error_message = check_optional_file_readable(fasta)
+        if not ok:
+            print(f"{error_message}\nPlease try again with a different file for --fasta.", file=sys.stderr)
+            sys.exit(1)
+    elif is_interactive:
+        fasta = prompt_with_checker("If you have your own fasta file, then enter its path", "", check_optional_file_readable)
+    return fasta
+
+
+def get_workdir(args_workdir, is_interactive):
+    if args_workdir:
+        workdir = args_workdir
+        ok, error_message = check_dir_exists_or_creatable(workdir)
+        if not ok:
+            print(f"{error_message}\nPlease try again with a different path for --workdir.", file=sys.stderr)
+            sys.exit(1)
+    else:
+        workdir = prompt_with_checker("Enter directory where sequences should be downloaded and trees built", ".", check_dir_exists_or_creatable)
+    return workdir
+
+
+def make_config(config, workdir, refseq_id, taxid, args_config, is_interactive):
+    config_path_default = f"{workdir}/viral_usher_config_{refseq_id}_{taxid}.toml"
+    if args_config:
+        config_path = args_config
+        if not check_write_config(config, config_path):
+            print(f"Unable to write to --config {config_path}.  Please try again with a different --config path.")
+            sys.exit(1)
+    elif is_interactive:
+        config_ok = False
+        while not config_ok:
+            config_path = input(f"\nEnter path for config file [{config_path_default}]: ") or config_path_default
+            config_ok = check_write_config(config, config_path)
+            if not config_ok:
+                print(f"Unable to write config to {config_path}.")
+            else:
+                print(f"Wrote config file to {config_path}")
+    else:
+        config_path = config_path_default
+        if not check_write_config(config, config_path):
+            print(f"Unable to write to default config path {config_path}.  Please try again with a different --config path.")
+            sys.exit(1)
+    return config_path
+
+
 def handle_init(args):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     ncbi = ncbi_helper.NcbiHelper()
@@ -147,24 +196,8 @@ def handle_init(args):
     # If --refseq and --workdir are given then accept defaults for other options
     is_interactive = not (args.refseq and args.workdir)
 
-    fasta = ''
-    if args.fasta is not None:
-        fasta = args.fasta
-        ok, error_message = check_optional_file_readable(fasta)
-        if not ok:
-            print(f"{error_message}\nPlease try again with a different file for --fasta.", file=sys.stderr)
-            sys.exit(1)
-    elif is_interactive:
-        fasta = prompt_with_checker("If you have your own fasta file, then enter its path", "", check_optional_file_readable)
-
-    if args.workdir:
-        workdir = args.workdir
-        ok, error_message = check_dir_exists_or_creatable(workdir)
-        if not ok:
-            print(f"{error_message}\nPlease try again with a different path for --workdir.", file=sys.stderr)
-            sys.exit(1)
-    else:
-        workdir = prompt_with_checker("\nEnter directory where sequences should be downloaded and trees built", ".", check_dir_exists_or_creatable)
+    fasta = get_user_fasta(args.fasta, is_interactive)
+    workdir = get_workdir(args.workdir, is_interactive)
 
     viral_usher_version = importlib.metadata.version('viral_usher')
     config = {
@@ -175,25 +208,6 @@ def handle_init(args):
         "extra_fasta": fasta,
         "workdir": os.path.abspath(workdir),
     }
-    config_path_default = f"{workdir}/viral_usher_config_{refseq_id}_{taxid}.toml"
-    if args.config:
-        config_path = args.config
-        if not check_write_config(config, config_path):
-            print(f"Unable to write to --config {config_path}.  Please try again with a different --config path.")
-            sys.exit(1)
-    elif is_interactive:
-        config_ok = False
-        while not config_ok:
-            config_path = input(f"\nEnter path for config file [{config_path_default}]: ") or config_path_default
-            config_ok = check_write_config(config, config_path)
-            if not config_ok:
-                print(f"Unable to write config to {config_path}.")
-            else:
-                print(f"Wrote config file to {config_path}")
-    else:
-        config_path = config_path_default
-        if not check_write_config(config, config_path):
-            print(f"Unable to write to default config path {config_path}.  Please try again with a different --config path.")
-            sys.exit(1)
+    config_path = make_config(config, workdir, refseq_id, taxid, args.config, is_interactive)
 
     print(f"\nReady to roll!  Next, try running 'viral_usher build --config {config_path}'\n")
