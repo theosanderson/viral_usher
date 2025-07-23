@@ -152,7 +152,7 @@ def handle_init(args):
         fasta = args.fasta
         ok, error_message = check_optional_file_readable(fasta)
         if not ok:
-            print(f"{error_message}\nPlease try again with a different file for --extra-fasta.", file=sys.stderr)
+            print(f"{error_message}\nPlease try again with a different file for --fasta.", file=sys.stderr)
             sys.exit(1)
     elif is_interactive:
         fasta = prompt_with_checker("If you have your own fasta file, then enter its path", "", check_optional_file_readable)
