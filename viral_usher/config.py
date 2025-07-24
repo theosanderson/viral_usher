@@ -2,6 +2,10 @@ import sys
 import tomllib
 
 
+DEFAULT_MIN_LENGTH_PROPORTION = 0.8
+DEFAULT_MAX_N_PROPORTION = 0.25
+
+
 def read_config(config_path):
     with open(config_path, 'rb') as f:
         config = tomllib.load(f)

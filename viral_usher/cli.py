@@ -3,6 +3,7 @@ import importlib.metadata
 import sys
 from .init import handle_init
 from .build import handle_build
+from . import config
 
 
 def main():
@@ -21,12 +22,14 @@ def main():
     init_parser.add_argument("-t", "--taxonomy_id", help="NCBI Taxonomy ID of the viral species, if known")
     init_parser.add_argument("-s", "--species", help="Viral species name (if Taxonomy ID is not known)")
     init_parser.add_argument("-f", "--fasta", help="Additional sequences to include in tree")
+    init_parser.add_argument("-l", "--min_length_proportion", help=f"Minimum proportion of RefSeq length to require for GenBank sequences (default: {config.DEFAULT_MIN_LENGTH_PROPORTION})")
+    init_parser.add_argument("-n", "--max_N_proportion", help=f"Maximum proportion of N bases to allow in GenBank sequences (default: {config.DEFAULT_MAX_N_PROPORTION})")
     init_parser.add_argument("-w", "--workdir", help="Directory in which tree files will be built")
     init_parser.add_argument("-c", "--config", type=str, help="Path to config file output")
 
     # Build subcommand
     build_parser = subparsers.add_parser("build", help="Run the pipeline to download sequences and build a tree")
-    build_parser.add_argument("--config", type=str, required=True, help="Path to config file input")
+    build_parser.add_argument("-c", "--config", type=str, required=True, help="Path to config file input")
 
     args = parser.parse_args()
 

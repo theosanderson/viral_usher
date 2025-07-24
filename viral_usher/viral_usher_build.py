@@ -10,7 +10,7 @@ import sys
 import time
 import zipfile
 from Bio import SeqIO
-from .config import parse_config
+from . import config
 from . import ncbi_helper
 
 
@@ -344,11 +344,13 @@ def main():
     args = parser.parse_args()
 
     print(f"Running pipeline with config file: {args.config}")
-    config = parse_config(args.config)
-    refseq_acc = config['refseq_acc']
-    assembly_id = config['refseq_assembly']
-    taxid = config['taxonomy_id']
-    extra_fasta = config.get('extra_fasta', '')
+    config_contents = config.parse_config(args.config)
+    refseq_acc = config_contents['refseq_acc']
+    assembly_id = config_contents['refseq_assembly']
+    taxid = config_contents['taxonomy_id']
+    min_length_proportion = float(config_contents.get('min_length_proportion', config.DEFAULT_MIN_LENGTH_PROPORTION))
+    max_N_proportion = float(config_contents.get('max_N_proporiton', config.DEFAULT_MAX_N_PROPORTION))
+    extra_fasta = config_contents.get('extra_fasta', '')
     refseq_zip = f"{refseq_acc}.zip"
     genbank_zip = f"genbank_{taxid}.zip"
 
@@ -360,10 +362,8 @@ def main():
     ncbi.download_genbank(taxid, genbank_zip)
 
     refseq_fasta, refseq_gbff, refseq_length = unpack_refseq_zip(refseq_zip, refseq_acc)
-    # TODO: Parameterize these into config
-    min_length_proportion = 0.8
+
     min_length = int(refseq_length * min_length_proportion)
-    max_N_proportion = 0.25
     print(f"Using min_length_proportion={min_length_proportion} ({min_length} bases) and max_N_proportion={max_N_proportion}")
     genbank_fasta, data_report = unpack_genbank_zip(genbank_zip, min_length, max_N_proportion)
     msa_vcf = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion)
