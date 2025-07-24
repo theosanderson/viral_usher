@@ -3,8 +3,21 @@ name: Docker Image CI
 on:
   push:
     branches: [ "main" ]
+    paths:
+      - "Dockerfile"
+      - "viral_usher/viral_usher_build.py"
+      - "viral_usher/config.py"
+      - "viral_usher/ncbi_helper.py"
+      - "pyproject.toml"
   pull_request:
     branches: [ "main" ]
+    paths:
+      - "Dockerfile"
+      - "viral_usher/viral_usher_build.py"
+      - "viral_usher/config.py"
+      - "viral_usher/ncbi_helper.py"
+      - "pyproject.toml"
+
 
 jobs:
 
