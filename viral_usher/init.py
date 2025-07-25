@@ -10,10 +10,16 @@ from . import config
 
 
 def get_input(prompt):
+    """Get input from the user.  Quit gracefully if it looks like the user wants out."""
     try:
-        return input(prompt)
-    except KeyboardInterrupt:
+        text = input(prompt)
+    except (KeyboardInterrupt, EOFError):
+        print("")
         sys.exit(1)
+    if re.match(r"^[Qq](uit)?", text):
+        print("Exiting...")
+        sys.exit(0)
+    return text
 
 
 def prompt_int_choice(prompt, min_value=1, max_value=None):
@@ -28,41 +34,94 @@ def prompt_int_choice(prompt, min_value=1, max_value=None):
             else:
                 print(f"Please enter a number between {min_value} and {max_value}.")
         except ValueError:
-            if (re.match(r"^[Qq](uit)?", choice)):
-                print("Exiting...")
-                sys.exit(0)
             print("Invalid input. Please enter a number.")
 
 
-def prompt_taxonomy_id(ncbi, species_name):
-    """Prompt the user to select a Taxonomy ID from the list of matches for a given species name."""
-    matches = ncbi.get_taxonomy_entries('"' + species_name + '"')
-    if matches:
-        print(f"\nFound the following Taxonomy IDs for '{species_name}':")
-        for idx, entry in enumerate(matches):
-            print(f"{idx+1}. {entry['sci_name']} (Taxonomy ID: {entry['tax_id']})")
-        choice = prompt_int_choice("Select the correct species by number", 1, len(matches))
-        return matches[choice-1]["tax_id"]
+def prompt_taxonomy_id(species_term, tax_entries):
+    """Given a list of NCBI Taxonomy records, display to the user and ask them to choose one,
+    also giving an option for None of the above / go back.  Return 1-based index of user's choice."""
+    print(f"\nFound the following Taxonomy IDs for '{species_term}':")
+    for idx, entry in enumerate(tax_entries):
+        print(f"{idx+1}. {entry['sci_name']} (Taxonomy ID: {entry['tax_id']})")
+    print(f"{len(tax_entries)+1}. None of the above, go back")
+    return prompt_int_choice("Enter a number to choose an option", 1, len(tax_entries)+1)
+
+
+def prompt_refseq_id(taxid, refseq_entries):
+    """Given a list of NCBI RefSeq records, display to the user and ask them to choose one,
+    also giving an option for None of the above / go back.  Return 1-based index of user's choice."""
+    print(f"\nFound the following RefSeq IDs for Taxonomy ID {taxid}:")
+    for idx, entry in enumerate(refseq_entries):
+        label = f"{entry['accession']}: {entry['title']}"
+        if (entry["strain"] and entry["strain"] != "No strain" and entry["strain"] not in label):
+            label += f" ({entry['strain']})"
+        print(f"{idx+1}. {label}")
+    print(f"{len(refseq_entries)+1}. None of the above, go back")
+    return prompt_int_choice("Enter a number to choose an option", 1, len(refseq_entries)+1)
+
+
+def get_species_taxonomy_refseq(ncbi):
+    """Prompt user for a species search term.  Look up Taxonomy IDs for species,
+    prompt the user to select a Taxonomy ID, look up RefSeqs for the selected Taxonomy ID,
+    prompt the user to select a RefSeq.  Return Taxonomy ID, RefSeq accession and RefSeq Assembly ID."""
+    species_term = ""
+    while not species_term:
+        species_term = get_input("\nWhat is your virus of interest? ")
+    return lookup_taxonomy_refseq(ncbi, species_term)
+
+
+def lookup_taxonomy_refseq(ncbi, species_term):
+    """Look up Taxonomy IDs for species, prompt the user to select a Taxonomy ID,
+    look up RefSeqs for the selected Taxonomy ID, prompt the user to select a RefSeq.
+    Return Taxonomy ID, RefSeq accession and RefSeq Assembly ID."""
+    print(f"Looking up NCBI Taxonomy entries for '{species_term}'...")
+    tax_entries = ncbi.get_taxonomy_entries('"' + species_term + '"')
+    if tax_entries:
+        return get_taxonomy_refseq(ncbi, species_term, tax_entries)
     else:
-        print(f"\nNo matches found for '{species_name}'.")
-        sys.exit(1)
+        print(f"\nNo matches found for '{species_term}'.")
+        return get_species_taxonomy_refseq(ncbi)
 
 
-def prompt_refseq_id(ncbi, taxid):
-    """Prompt the user to select a RefSeq ID from the list of available IDs for a given Taxonomy ID."""
+def get_taxonomy_refseq(ncbi, species_term, tax_entries):
+    """Prompt the user to select a Taxonomy ID, look up RefSeqs for the selected Taxonomy ID,
+    prompt the user to select a RefSeq.  Return Taxonomy ID, RefSeq accession and RefSeq Assembly ID."""
+    choice = prompt_taxonomy_id(species_term, tax_entries)
+    if choice > len(tax_entries):
+        # User says none of the above, go back.
+        return get_species_taxonomy_refseq(ncbi)
+    else:
+        taxid = tax_entries[choice-1]["tax_id"]
+        return lookup_refseq(ncbi, species_term, tax_entries, taxid)
+
+
+def lookup_refseq(ncbi, species_term, tax_entries, taxid):
+    """Look up RefSeqs for the selected Taxonomy ID, prompt the user to select a RefSeq.
+    Return Taxonomy ID and RefSeq ID."""
+    print(f"Looking up RefSeqs associated with Taxonomy ID {taxid}...")
     refseq_entries = ncbi.get_refseqs_for_taxid(taxid)
     if refseq_entries:
-        print(f"\nFound the following RefSeq IDs for Taxonomy ID {taxid}:")
-        for idx, r in enumerate(refseq_entries):
-            label = f"{r['accession']}: {r['title']}"
-            if (r["strain"] and r["strain"] != "No strain"):
-                label += f" ({r['strain']})"
-            print(f"{idx+1}. {label}")
-        choice = prompt_int_choice("Select the correct RefSeq ID by number", 1, len(refseq_entries))
-        return refseq_entries[choice-1]['accession']
+        return get_refseq(ncbi, species_term, tax_entries, taxid, refseq_entries)
     else:
-        print(f"\nNo RefSeq IDs found for Taxonomy ID {taxid}.")
-        sys.exit(1)
+        print(f"No RefSeqs found for Taxonomy ID '{taxid}'.  Try a different Taxonomy ID.")
+        return get_taxonomy_refseq(ncbi, species_term, tax_entries)
+
+
+def get_refseq(ncbi, species_term, tax_entries, taxid, refseq_entries):
+    """Prompt the user to select a RefSeq.  Return Taxonomy ID, RefSeq accession and RefSeq Assembly ID."""
+    choice = prompt_refseq_id(taxid, refseq_entries)
+    if choice > len(refseq_entries):
+        # User says none of the above, go back.
+        return get_taxonomy_refseq(ncbi, species_term, tax_entries)
+    else:
+        refseq_id = refseq_entries[choice-1]["accession"]
+        print(f"Looking up NCBI Assembly accession for selected RefSeq '{refseq_id}'...")
+        assembly_id = ncbi.get_assembly_acc_for_refseq_acc(refseq_id)
+        if not assembly_id:
+            print(f"Could not find assembly ID for RefSeq ID {refseq_id} -- can't download RefSeq.")
+            print("Try choosing a different RefSeq.")
+            return get_refseq(ncbi, species_term, tax_entries, taxid, refseq_entries)
+        return taxid, refseq_id, assembly_id
 
 
 def check_proportion(proportion):
@@ -215,8 +274,13 @@ def make_config(config_contents, workdir, refseq_id, taxid, args_config, is_inte
 def handle_init(args):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     ncbi = ncbi_helper.NcbiHelper()
+    # First sort out the interdependent refseq and taxonomy id options.
     if args.refseq:
         refseq_id = args.refseq
+        assembly_id = ncbi.get_assembly_acc_for_refseq_acc(refseq_id)
+        if not assembly_id:
+            print(f"Could not find assembly ID for RefSeq ID {refseq_id} -- can't download RefSeq.")
+            sys.exit(1)
         taxid = str(ncbi.get_taxid_for_refseq(refseq_id))
         if args.taxonomy_id:
             if taxid != args.taxonomy_id:
@@ -226,23 +290,11 @@ def handle_init(args):
                 print(f"\nNOTE: RefSeq ID {refseq_id} is associated with Taxonomy ID {taxid}, not the provided Taxonomy ID {args.taxonomy_id}.\n")
                 taxid = args.taxonomy_id
     elif args.taxonomy_id:
-        taxid = args.taxonomy_id
-        refseq_id = prompt_refseq_id(ncbi, taxid)
+        taxid, refseq_id, assembly_id = lookup_refseq(ncbi, args.species, [], args.taxonomy_id)
     elif args.species:
-        species = args.species
-        taxid = prompt_taxonomy_id(ncbi, species)
-        refseq_id = prompt_refseq_id(ncbi, taxid)
+        taxid, refseq_id, assembly_id = lookup_taxonomy_refseq(ncbi, args.species)
     else:
-        species = get_input("\nEnter viral species name: ").strip()
-        if not species:
-            print("Can't proceed without a species name.")
-            sys.exit(1)
-        taxid = prompt_taxonomy_id(ncbi, species)
-        refseq_id = prompt_refseq_id(ncbi, taxid)
-    assembly_id = ncbi.get_assembly_acc_for_refseq_acc(refseq_id)
-    if not assembly_id:
-        print(f"Could not find assembly ID for RefSeq ID {refseq_id} -- can't download RefSeq.")
-        sys.exit(1)
+        taxid, refseq_id, assembly_id = get_species_taxonomy_refseq(ncbi)
 
     # If --refseq and --workdir are given then accept defaults for other options
     is_interactive = not (args.refseq and args.workdir)
