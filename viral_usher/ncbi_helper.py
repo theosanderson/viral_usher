@@ -36,7 +36,12 @@ class NcbiHelper:
         time.sleep(1)
         resp = requests.get(url, params=params)
         self.check_response(resp)
-        return resp.json()
+        try:
+            result = resp.json()
+        except json.JSONDecodeError:
+            self.logger.error(resp.text)
+            sys.exit(1)
+        return result
 
     def eutils_request(self, url, params):
         """Send a request, check the response, and return the JSON data."""
