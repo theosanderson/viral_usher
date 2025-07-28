@@ -43,6 +43,7 @@ def maybe_pull_docker_image(client: docker.DockerClient, image_name: str):
         image = client.images.get(image_name)
     except docker.errors.ImageNotFound:
         print(f"Docker image {image_name} is not present, pulling it from DockerHub...")
+        image = None
         need_pull = True
     if image:
         if not image_created_within_last_day(image):
