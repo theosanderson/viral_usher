@@ -166,10 +166,10 @@ def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_le
         'nextclade', 'run', '--input-ref', refseq_fasta, '--include-reference', 'true', '--output-fasta', '/dev/stdout'
     ]
     fatovcf_cmd = ['faToVcf', '-includeNoAltN', '-ref=' + refseq_acc, 'stdin', 'stdout']
-    with gzip.open(msa_vcf_gz, 'wb') as vcf_out:
+    with gzip.open(msa_vcf_gz, 'wb') as vcf_out, gzip.open('nextclade.err.txt.gz', 'wb') as nextclade_stderr:
         try:
             # Start nextclade
-            nextclade_proc = subprocess.Popen(nextclade_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            nextclade_proc = subprocess.Popen(nextclade_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=nextclade_stderr)
             # Start faToVcf, reading from nextclade's stdout
             fatovcf_proc = subprocess.Popen(fatovcf_cmd, stdin=nextclade_proc.stdout, stdout=subprocess.PIPE)
             nextclade_proc.stdout.close()  # Allow nextclade to receive SIGPIPE if faToVcf exits

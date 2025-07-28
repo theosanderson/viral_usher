@@ -20,6 +20,7 @@ build
 *.tsv
 *.tsv.gz
 *.txt
+*.txt.gz
 *.log
 *.vcf
 *.vcf.gz
