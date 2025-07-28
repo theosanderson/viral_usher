@@ -160,13 +160,14 @@ def record_to_fasta_bytes(record):
 def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion):
     """Run nextclade to align the filtered sequences to the reference, and pipe its output to faToVcf and gzip."""
     msa_vcf_gz = 'msa.vcf.gz'
+    nextclade_err_txt = 'nextclade.err.txt'
     start_time = time.perf_counter()
     # Set up the pipeline: | nextclade | faToVcf | gzip > msa.vcf.gz
     nextclade_cmd = [
         'nextclade', 'run', '--input-ref', refseq_fasta, '--include-reference', 'true', '--output-fasta', '/dev/stdout'
     ]
     fatovcf_cmd = ['faToVcf', '-includeNoAltN', '-ref=' + refseq_acc, 'stdin', 'stdout']
-    with gzip.open(msa_vcf_gz, 'wb') as vcf_out, gzip.open('nextclade.err.txt.gz', 'wb') as nextclade_stderr:
+    with gzip.open(msa_vcf_gz, 'wb') as vcf_out, open(nextclade_err_txt, 'wb') as nextclade_stderr:
         try:
             # Start nextclade
             nextclade_proc = subprocess.Popen(nextclade_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=nextclade_stderr)
@@ -206,6 +207,8 @@ def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_le
             raise
     elapsed_time = time.perf_counter() - start_time
     print(f"Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: {msa_vcf_gz} in {elapsed_time:.1f}s")
+    # gzip nextclade.err.txt (note: using gzip.open above did not work, it was written uncompressed.)
+    run_command(['gzip', '-f', nextclade_err_txt])
     return msa_vcf_gz
 
 
