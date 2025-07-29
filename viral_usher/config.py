@@ -4,6 +4,8 @@ import tomllib
 
 DEFAULT_MIN_LENGTH_PROPORTION = 0.8
 DEFAULT_MAX_N_PROPORTION = 0.25
+DEFAULT_MAX_PARSIMONY = 1000
+DEFAULT_MAX_BRANCH_LENGTH = 10000
 
 
 def read_config(config_path):
@@ -36,9 +38,6 @@ def check_refseq_assembly(refseq_assembly):
 def parse_config(config_path):
     """Read the config file and validate its contents."""
     config = read_config(config_path)
-    print(f"refseq_acc: {config['refseq_acc']}")
-    print(f"taxonomy_id: {config['taxonomy_id']}")
-    print(f"refseq_assembly: {config['refseq_assembly']}")
     try:
         check_refseq_acc(config['refseq_acc'])
         check_taxonomy_id(config['taxonomy_id'])

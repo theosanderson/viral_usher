@@ -235,7 +235,7 @@ def run_usher_sampled(tree, vcf):
 
 def run_matoptimize(pb_file, vcf_file):
     """Run matOptimize to clean up after usher-sampled"""
-    pb_out = 'optimized.pb.gz'
+    pb_out = 'optimized.unfiltered.pb.gz'
     start_time = time.perf_counter()
     # Try with VCF, which is less tested but should give better results because it includes
     # info about which bases are ambiguous or N.  That info is lost when usher imputes values.
@@ -248,6 +248,21 @@ def run_matoptimize(pb_file, vcf_file):
         run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log')
     elapsed_time = time.perf_counter() - start_time
     print(f"Ran matOptimize in {elapsed_time:.1f}s")
+    return pb_out
+
+
+def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
+    """Run matUtils extract to filter sequences/branches and collapse tree post-matOptimize"""
+    pb_out = 'optimized.pb.gz'
+    start_time = time.perf_counter()
+    command = ['matUtils', 'extract', '-i', opt_unfiltered_tree,
+               '--max-parsimony', str(max_parsimony),
+               '--max-branch-length', str(max_branch_length),
+               '--collapse-tree',
+               '-o', pb_out]
+    run_command(command, stdout_filename='matUtils.filter.out.log', stderr_filename='matUtils.filter.err.log')
+    elapsed_time = time.perf_counter() - start_time
+    print(f"Ran matUtils to filter (--max-parsimony {max_parsimony} --max-branch-length {max_branch_length}) in {elapsed_time:.1f}s")
     return pb_out
 
 
@@ -353,6 +368,8 @@ def main():
     taxid = config_contents['taxonomy_id']
     min_length_proportion = float(config_contents.get('min_length_proportion', config.DEFAULT_MIN_LENGTH_PROPORTION))
     max_N_proportion = float(config_contents.get('max_N_proportion', config.DEFAULT_MAX_N_PROPORTION))
+    max_parsimony = int(config_contents.get('max_parsimony', str(config.DEFAULT_MAX_PARSIMONY)))
+    max_branch_length = int(config_contents.get('max_branch_length', str(config.DEFAULT_MAX_BRANCH_LENGTH)))
     extra_fasta = config_contents.get('extra_fasta', '')
     refseq_zip = f"{refseq_acc}.zip"
     genbank_zip = f"genbank_{taxid}.zip"
@@ -372,7 +389,8 @@ def main():
     msa_vcf = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion)
     empty_tree = make_empty_tree()
     preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
-    opt_tree = run_matoptimize(preopt_tree, msa_vcf)
+    opt_unfiltered_tree = run_matoptimize(preopt_tree, msa_vcf)
+    opt_tree = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length)
     rename_tsv, metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report)
     usher_to_taxonium(viz_tree, metadata_tsv)
 

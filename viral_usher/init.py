@@ -138,6 +138,26 @@ def check_proportion(proportion):
     return True, None
 
 
+def check_int(val, min=None, max=None):
+    """Make sure the given value converts to an integer.  Empty/None is okay."""
+    if val:
+        try:
+            value = int(val)
+        except ValueError:
+            return False, f"Sorry, need an integer, '{val}' doesn't parse"
+        if min is not None:
+            if value < min:
+                return False, f"Sorry, need at least {min}, {val} is too low."
+        if max is not None:
+            if value > max:
+                return False, f"Sorry, the maximum is {max}, {val} is too large."
+    return True, None
+
+
+def check_nonnegative_int(val):
+    return check_int(val, min=0)
+
+
 def check_optional_file_readable(filename):
     """If filename is empty, that's fine; if non-empty, make sure it's a readable file"""
     if filename:
@@ -195,7 +215,7 @@ def check_write_config(config_contents, config_path):
 
 
 def get_min_length_proportion(args_min_length_proportion, is_interactive):
-    min_length_proportion = str(config.DEFAULT_MIN_LENGTH_PROPORTION)
+    min_length_proportion = config.DEFAULT_MIN_LENGTH_PROPORTION
     if args_min_length_proportion:
         min_length_proportion = args_min_length_proportion
         ok, error_message = check_proportion(min_length_proportion)
@@ -205,11 +225,11 @@ def get_min_length_proportion(args_min_length_proportion, is_interactive):
     elif is_interactive:
         min_length_proportion = prompt_with_checker("GenBank sequences will be filtered to retain only those whose length is at least this proportion of the RefSeq length",
                                                     min_length_proportion, check_proportion)
-    return min_length_proportion
+    return str(min_length_proportion)
 
 
 def get_max_N_proportion(args_max_N_proportion, is_interactive):
-    max_N_proportion = str(config.DEFAULT_MAX_N_PROPORTION)
+    max_N_proportion = config.DEFAULT_MAX_N_PROPORTION
     if args_max_N_proportion:
         max_N_proportion = args_max_N_proportion
         ok, error_message = check_proportion(max_N_proportion)
@@ -219,7 +239,35 @@ def get_max_N_proportion(args_max_N_proportion, is_interactive):
     elif is_interactive:
         max_N_proportion = prompt_with_checker("GenBank sequences will be filtered to retain only those with at most this proportion of 'N' or ambiguous bases",
                                                max_N_proportion, check_proportion)
-    return max_N_proportion
+    return str(max_N_proportion)
+
+
+def get_max_parsimony(args_max_parsimony, is_interactive):
+    max_parsimony = config.DEFAULT_MAX_PARSIMONY
+    if args_max_parsimony:
+        max_parsimony = args_max_parsimony
+        ok, error_message = check_nonnegative_int(max_parsimony)
+        if not ok:
+            print(f"{error_message}\nPlease try again with a different value for --max_parsimony", file=sys.stderr)
+            sys.exit(1)
+    elif is_interactive:
+        max_parsimony = prompt_with_checker("After the tree is constructed, sequences with more than this number of private substitutions will be removed",
+                                            max_parsimony, check_nonnegative_int)
+    return str(max_parsimony)
+
+
+def get_max_branch_length(args_max_branch_length, is_interactive):
+    max_branch_length = config.DEFAULT_MAX_BRANCH_LENGTH
+    if args_max_branch_length:
+        max_branch_length = args_max_branch_length
+        ok, error_message = check_nonnegative_int(max_branch_length)
+        if not ok:
+            print(f"{error_message}\nPlease try again with a different value for --max_branch_length", file=sys.stderr)
+            sys.exit(1)
+    elif is_interactive:
+        max_branch_length = prompt_with_checker("After the tree is constructed, branches with more than this number of substitutions defining the branch will be removed",
+                                                max_branch_length, check_nonnegative_int)
+    return str(max_branch_length)
 
 
 def get_user_fasta(args_fasta, is_interactive):
@@ -301,6 +349,8 @@ def handle_init(args):
 
     min_length_proportion = get_min_length_proportion(args.min_length_proportion, is_interactive)
     max_N_proportion = get_max_N_proportion(args.max_N_proportion, is_interactive)
+    max_parsimony = get_max_parsimony(args.max_parsimony, is_interactive)
+    max_branch_length = get_max_branch_length(args.max_branch_length, is_interactive)
     fasta = get_user_fasta(args.fasta, is_interactive)
     workdir = get_workdir(args.workdir, is_interactive)
 
@@ -312,6 +362,8 @@ def handle_init(args):
         "taxonomy_id": taxid,
         "min_length_proportion": min_length_proportion,
         "max_N_proportion": max_N_proportion,
+        "max_parsimony": max_parsimony,
+        "max_branch_length": max_branch_length,
         "extra_fasta": fasta,
         "workdir": os.path.abspath(workdir),
     }
