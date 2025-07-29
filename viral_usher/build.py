@@ -136,6 +136,9 @@ def handle_build(args):
     except (docker.errors.ContainerError) as e:
         print(f"docker container {docker_image} failed:\n{e}", file=sys.stderr)
         sys.exit(1)
+    except (TimeoutError):
+        print("Timeout error while trying to run docker; maybe try again later?")
+        sys.exit(1)
     if os.path.exists(f"{workdir}/tree.jsonl.gz"):
         print(f"Success -- you can view {workdir}/tree.jsonl.gz using https://taxonium.org/ now.")
     else:
