@@ -352,7 +352,7 @@ def main():
     assembly_id = config_contents['refseq_assembly']
     taxid = config_contents['taxonomy_id']
     min_length_proportion = float(config_contents.get('min_length_proportion', config.DEFAULT_MIN_LENGTH_PROPORTION))
-    max_N_proportion = float(config_contents.get('max_N_proporiton', config.DEFAULT_MAX_N_PROPORTION))
+    max_N_proportion = float(config_contents.get('max_N_proportion', config.DEFAULT_MAX_N_PROPORTION))
     extra_fasta = config_contents.get('extra_fasta', '')
     refseq_zip = f"{refseq_acc}.zip"
     genbank_zip = f"genbank_{taxid}.zip"
