@@ -9,8 +9,12 @@ DEFAULT_MAX_BRANCH_LENGTH = 10000
 
 
 def read_config(config_path):
-    with open(config_path, 'rb') as f:
-        config = tomllib.load(f)
+    try:
+        with open(config_path, 'rb') as f:
+            config = tomllib.load(f)
+    except FileNotFoundError:
+        print(f"Config file '{config_path}' does not exist.", file=sys.stderr)
+        raise
     return config
 
 
@@ -42,7 +46,7 @@ def parse_config(config_path):
         check_refseq_acc(config['refseq_acc'])
         check_taxonomy_id(config['taxonomy_id'])
         check_refseq_assembly(config['refseq_assembly'])
-    except (ValueError, FileNotFoundError) as e:
+    except ValueError as e:
         print(f"Error in config file {config_path}: {e}", file=sys.stderr)
         raise
     return config
