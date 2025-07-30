@@ -3,13 +3,13 @@
 import datetime
 import docker
 import filecmp
+import importlib.metadata
 import os
 import shutil
 import subprocess
 import sys
 from . import config
 
-docker_image = 'angiehinrichs/viral_usher'
 docker_platform = 'linux/amd64'
 docker_workdir = '/data'
 
@@ -28,29 +28,36 @@ def check_docker_command():
     return True, None
 
 
-def image_created_within_last_day(image: docker.models.images.Image):
-    """Return True if the Docker image object was created within the past 24 hours"""
-    created_at_str = image.attrs["Created"]
-    created_at = datetime.datetime.strptime(created_at_str[:26], "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=datetime.timezone.utc)
-    now = datetime.datetime.now(datetime.timezone.utc)
-    return (now - created_at) <= datetime.timedelta(days=1)
-
-
-def maybe_pull_docker_image(client: docker.DockerClient, image_name: str):
-    """If image does not already exist locally, or is more than a day old, pull it."""
-    need_pull = False
+def pull_docker_image(client: docker.DockerClient, image_name: str):
+    """Pull the docker image corresponding to this version of the viral_usher python package unless it is already present."""
     try:
-        image = client.images.get(image_name)
-    except docker.errors.ImageNotFound:
-        print(f"Docker image {image_name} is not present, pulling it from DockerHub...")
-        image = None
-        need_pull = True
-    if image:
-        if not image_created_within_last_day(image):
-            print(f"Pulling latest version of docker image {image_name} from DockerHub...")
-            need_pull = True
-    if need_pull:
         client.images.pull(image_name, platform=docker_platform)
+    except (docker.errors.ContainerError) as e:
+        print(f"Failed to pull docker container {image_name}:\n{e}", file=sys.stderr)
+        sys.exit(1)
+    except (TimeoutError):
+        print("Timeout error while trying to pull docker image; maybe try again later?")
+        sys.exit(1)
+
+
+def get_docker_image(client: docker.DockerClient, args_docker_image: str):
+    if args_docker_image:
+        try:
+            client.images.get(args_docker_image)
+            print(f"Using docker image {args_docker_image}")
+        except docker.errors.ImageNotFound:
+            print(f"Docker image '{args_docker_image}' not found.  Please try again with a different --docker_image value.", sys.stderr)
+        return args_docker_image
+    else:
+        viral_usher_version = importlib.metadata.version('viral_usher')
+        image_name = config.DEFAULT_DOCKER_IMAGE + ':v' + viral_usher_version
+        try:
+            client.images.get(image_name)
+            print(f"Using docker image {image_name}")
+        except docker.errors.ImageNotFound:
+            print(f"Docker image {image_name} is not present, pulling it from DockerHub...")
+            pull_docker_image(client, image_name)
+        return image_name
 
 
 def maybe_copy_to_workdir(filepath, workdir):
@@ -107,14 +114,13 @@ def localize_config(args_config, config_contents):
     return config_rel
 
 
-def run_in_docker(workdir, config_rel):
+def run_in_docker(workdir, config_rel, args_docker_image):
     """Start up a docker container that runs the pipeline."""
     docker_client = docker.from_env()
     user_id = os.getuid()
     group_id = os.getgid()
-    print(f"Running docker image {docker_image}")
+    docker_image = get_docker_image(docker_client, args_docker_image)
     try:
-        maybe_pull_docker_image(docker_client, docker_image)
         container = docker_client.containers.run(
             docker_image,
             platform=docker_platform,
@@ -153,7 +159,7 @@ def handle_build(args):
     config_contents = config.parse_config(args.config)
     config_rel = localize_config(args.config, config_contents)
     workdir = config_contents['workdir']
-    run_in_docker(workdir, config_rel)
+    run_in_docker(workdir, config_rel, args.docker_image)
     if os.path.exists(f"{workdir}/tree.jsonl.gz"):
         print(f"Success -- you can view {workdir}/tree.jsonl.gz using https://taxonium.org/ now.")
     else:
