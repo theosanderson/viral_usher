@@ -31,4 +31,4 @@ jobs:
       with:
         context: .
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/viral_usher:${{ github.event.release.name }}
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/viral_usher:${{ github.event.release.tag_name }}
