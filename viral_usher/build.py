@@ -17,7 +17,7 @@ docker_workdir = '/data'
 def check_docker_command():
     try:
         subprocess.run(['docker', '--help'], check=True, capture_output=True)
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         print("\nUnable to run 'docker --help' -- please install Docker from https://www.docker.com/ and try again.\n", file=sys.stderr)
         return False
     try:
