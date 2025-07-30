@@ -7,7 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
-from .config import parse_config, write_config
+from . import config
 
 docker_image = 'angiehinrichs/viral_usher'
 docker_platform = 'linux/amd64'
@@ -15,17 +15,17 @@ docker_workdir = '/data'
 
 
 def check_docker_command():
+    """Make sure we can run the docker command and connect to the docker server.  If there's a problem, return False with
+    an error message; otherwise return True with no message."""
     try:
         subprocess.run(['docker', '--help'], check=True, capture_output=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        print("\nUnable to run 'docker --help' -- please install Docker from https://www.docker.com/ and try again.\n", file=sys.stderr)
-        return False
+        return False, "Unable to run 'docker --help' -- please install Docker from https://www.docker.com/ and try again."
     try:
         subprocess.run(['docker', 'images'], check=True, capture_output=True)
     except subprocess.CalledProcessError:
-        print("\nUnable to run 'docker --images' -- please make sure the docker daemon is running (e.g. on a Mac, start the Docker app)\n", file=sys.stderr)
-        return False
-    return True
+        return False, "Unable to run 'docker --images' -- please make sure the docker daemon is running (e.g. on a Mac, start the Docker app)"
+    return True, None
 
 
 def image_created_within_last_day(image: docker.models.images.Image):
@@ -77,39 +77,41 @@ def maybe_copy_to_workdir(filepath, workdir):
             return basename
 
 
-def rewrite_config(config, workdir):
+def rewrite_config(config_contents, workdir):
     """Make a new timestamped config file in workdir that contains the given config settings"""
     now = datetime.datetime.now()
     new_name = 'local_config.' + now.strftime("%Y-%m-%d_%H-%M-%S") + '.toml'
     new_path = workdir + '/' + new_name
-    write_config(config, new_path)
+    config.write_config(config_contents, new_path)
     return new_name
 
 
-def handle_build(args):
-    if not check_docker_command():
-        sys.exit(1)
-    print(f"Running pipeline with config file: {args.config}")
-    config = parse_config(args.config)
-    workdir = config['workdir']
-    user_id = os.getuid()
-    group_id = os.getgid()
-    docker_client = docker.from_env()
-    # The config path passed to the script in the docker image must be relative to workdir
-    # because that is the only directory visible to the script.
-    config_rel = maybe_copy_to_workdir(args.config, workdir)
+def localize_config(args_config, config_contents):
+    """When running in docker, only the workdir will be available (as the current directory).
+    So absolute paths in the config need to be converted to relative paths, and if input files
+    are not already in the workdir, then they need to be copied there."""
+    workdir = config_contents['workdir']
     # If extra_fasta is given, make sure it will be available in workdir and that
     # the config used by the docker image script uses its relative path in workdir.
     config_changed = False
-    extra_fasta = config.get('extra_fasta', '')
+    extra_fasta = config_contents.get('extra_fasta', '')
     if extra_fasta:
         extra_fasta_rel = maybe_copy_to_workdir(extra_fasta, workdir)
         if extra_fasta_rel != extra_fasta:
-            config['extra_fasta'] = extra_fasta_rel
+            config_contents['extra_fasta'] = extra_fasta_rel
             config_changed = True
     if config_changed:
-        config_rel = rewrite_config(config, workdir)
+        config_rel = rewrite_config(config_contents, workdir)
+    else:
+        config_rel = maybe_copy_to_workdir(args_config, workdir)
+    return config_rel
 
+
+def run_in_docker(workdir, config_rel):
+    """Start up a docker container that runs the pipeline."""
+    docker_client = docker.from_env()
+    user_id = os.getuid()
+    group_id = os.getgid()
     print(f"Running docker image {docker_image}")
     try:
         maybe_pull_docker_image(docker_client, docker_image)
@@ -139,8 +141,21 @@ def handle_build(args):
     except (TimeoutError):
         print("Timeout error while trying to run docker; maybe try again later?")
         sys.exit(1)
+
+
+def handle_build(args):
+    """Set up input files in workdir, run pipeline in docker and check final results."""
+    ok, error = check_docker_command()
+    if not ok:
+        print(f"\n{error}\n", file=sys.stderr)
+        sys.exit(1)
+    print(f"Running pipeline with config file: {args.config}")
+    config_contents = config.parse_config(args.config)
+    config_rel = localize_config(args.config, config_contents)
+    workdir = config_contents['workdir']
+    run_in_docker(workdir, config_rel)
     if os.path.exists(f"{workdir}/tree.jsonl.gz"):
         print(f"Success -- you can view {workdir}/tree.jsonl.gz using https://taxonium.org/ now.")
     else:
-        print(f"The docker command ran successfully but the expected result file {workdir}/tree.jsonl.gz is not there.  Please file an issue in GitHub: https://github.com/AngieHinrichs/viral_usher/issues/new", file=sys.stderr)
+        print(f"The pipeline exited without an error status but the expected result file {workdir}/tree.jsonl.gz is not there.  Please file an issue in GitHub: https://github.com/AngieHinrichs/viral_usher/issues/new", file=sys.stderr)
         sys.exit(1)
