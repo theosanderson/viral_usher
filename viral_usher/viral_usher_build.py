@@ -283,6 +283,7 @@ def sanitize_name(name):
         name = name.replace(c, '_')
     return name
 
+
 def fudge_isolate(isolate, accession, date, country, year):
     """If isolate looks like a full /-separated descriptor then use it.
     Otherwise try to approximate it from available metadata bits and pieces."""
@@ -302,7 +303,7 @@ def fudge_isolate(isolate, accession, date, country, year):
 
 
 def rename_seqs(pb_in, data_report_tsv):
-    """Rename sequence names in tree to include location, isolate name and date when available.
+    """Rename sequence names in tree to include country, isolate name and date when available.
     Prepare metadata for taxonium."""
     rename_out = "rename.tsv"
     metadata_out = "metadata.tsv.gz"
@@ -314,7 +315,6 @@ def rename_seqs(pb_in, data_report_tsv):
         isolate_idx = header.index('isolate')
         date_idx = header.index('date')
         country_idx = header.index('country')
-        location_idx = header.index('location')
         # No header for rename_out; write header for metadata_out
         m_out.write('strain' + '\t' + '\t'.join(header))
 
@@ -326,7 +326,6 @@ def rename_seqs(pb_in, data_report_tsv):
             isolate = sanitize_name(fields[isolate_idx].strip())
             date = fields[date_idx].strip()
             country = sanitize_name(fields[country_idx].strip())
-            location = sanitize_name(fields[location_idx].strip())
             groups = re.match('^[0-9]{4}(-[0-9]{2})?(-[0-9]{2})?$', date)
             year = None
             if groups:
