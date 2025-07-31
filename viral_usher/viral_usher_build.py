@@ -326,7 +326,7 @@ def rename_seqs(pb_in, data_report_tsv):
             isolate = sanitize_name(fields[isolate_idx].strip())
             date = fields[date_idx].strip()
             country = sanitize_name(fields[country_idx].strip())
-            groups = re.match('^[0-9]{4}(-[0-9]{2})?(-[0-9]{2})?$', date)
+            groups = re.match('^([0-9]{4})(-[0-9]{2})?(-[0-9]{2})?$', date)
             year = None
             if groups:
                 year = groups[1]
