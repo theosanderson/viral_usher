@@ -77,6 +77,49 @@ def passes_seq_filter(record, min_length, max_N_proportion):
     return len(record.seq) >= min_length and record.seq.count('N') / len(record.seq) <= max_N_proportion
 
 
+def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, fasta_out_path):
+    # Filter fasta file and chop descriptions to get accession as name in nextclade
+    start_time = time.perf_counter()
+    record_count = 0
+    passed_count = 0
+    for record in SeqIO.parse(fasta_in, 'fasta'):
+        record_count += 1
+        # Filter sequences by length and proportion of ambiguous characters
+        if not passes_seq_filter(record, min_length, max_N_proportion):
+            continue
+        passed_count += 1
+        # Chop sequence name after first space to limit to accession only
+        record.description = record.id
+        SeqIO.write(record, fasta_out, 'fasta')
+    elapsed_time = time.perf_counter() - start_time
+    print(f"Processed {record_count} sequences from GenBank and wrote fasta file with {passed_count} sequences passing filters: {fasta_out_path} in {elapsed_time:.1f}s")
+
+
+def extract_metadata(jsonl_in, tsv_out, tsv_out_path):
+    # Extract only the bits we want from data_report.jsonl to data_report.tsv
+    start_time = time.perf_counter()
+    # Write header
+    tsv_out.write("\t".join(["accession", "isolate", "country", "location", "date", "length", "biosample", "submitter"]) + "\n")
+    for line in jsonl_in:
+        item = json.loads(line)
+        # Only keep selected fields; adjust as needed
+        accession = item.get('accession', '')
+        isolate = item.get('isolate', {}).get('name', '')
+        length = item.get('length', '')
+        date = item.get('isolate', {}).get('collectionDate', '')
+        location = item.get('location', {}).get('geographicLocation', '')
+        country = location.split(":")[0]
+        location = ":".join(location.split(":")[1:]).strip()
+        biosample = item.get('biosample', '')
+        submitter = item.get('submitter', {}).get('affiliation', '')
+        submitter_country = item.get('submitter', {}).get('country', '')
+        if submitter and submitter_country:
+            submitter = f"{submitter}, {submitter_country}"
+        tsv_out.write("\t".join([accession, isolate, country, location, date, str(length), biosample, submitter]) + "\n")
+    elapsed_time = time.perf_counter() - start_time
+    print(f"Wrote metadata TSV file: {tsv_out_path} in {elapsed_time:.1f}s")
+
+
 def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
     """Process the fasta and data_report.jsonl files from the GenBank zip,
     filtering the fasta by length and proportion of ambiguous characters and
@@ -90,45 +133,12 @@ def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
     with zipfile.ZipFile(genbank_zip, 'r') as zip_ref:
         for name in zip_ref.namelist():
             if name.endswith('.fna'):
-                # Filter fasta file and chop descriptions to get accession as name in nextclade
-                start_time = time.perf_counter()
-                record_count = 0
-                passed_count = 0
                 with io.TextIOWrapper(zip_ref.open(name, 'r'), encoding='utf-8') as fasta_in, lzma.open(fasta_out_path, 'wt') as fasta_out:
-                    for record in SeqIO.parse(fasta_in, 'fasta'):
-                        record_count += 1
-                        # Filter sequences by length and proportion of ambiguous characters
-                        if not passes_seq_filter(record, min_length, max_N_proportion):
-                            continue
-                        passed_count += 1
-                        # Chop sequence name after first space to limit to accession only
-                        record.description = record.id
-                        SeqIO.write(record, fasta_out, 'fasta')
-                elapsed_time = time.perf_counter() - start_time
-                print(f"Processed {record_count} sequences from GenBank and wrote fasta file with {passed_count} sequences passing filters: {fasta_out_path} in {elapsed_time:.1f}s")
+                    filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, fasta_out_path)
                 fasta_written = True
             elif name.endswith('data_report.jsonl'):
-                # Extract only the bits we want from data_report.jsonl to data_report.tsv
-                start_time = time.perf_counter()
                 with zip_ref.open(name) as jsonl_in, gzip.open(tsv_out_path, 'wt') as tsv_out:
-                    # Write header
-                    tsv_out.write("\t".join(["accession", "isolate", "location", "date", "length", "biosample", "submitter"]) + "\n")
-                    for line in jsonl_in:
-                        item = json.loads(line)
-                        # Only keep selected fields; adjust as needed
-                        accession = item.get('accession', '')
-                        isolate = item.get('isolate', {}).get('name', '')
-                        length = item.get('length', '')
-                        date = item.get(isolate, {}).get('collectionDate', '')
-                        location = item.get('location', {}).get('geographicLocation', '')
-                        biosample = item.get('biosample', '')
-                        submitter = item.get('submitter', {}).get('affiliation', '')
-                        submitter_country = item.get('submitter', {}).get('country', '')
-                        if submitter and submitter_country:
-                            submitter = f"{submitter}, {submitter_country}"
-                        tsv_out.write("\t".join([accession, isolate, location, date, str(length), biosample, submitter]) + "\n")
-                elapsed_time = time.perf_counter() - start_time
-                print(f"Wrote metadata TSV file: {tsv_out_path} in {elapsed_time:.1f}s")
+                    extract_metadata(jsonl_in, tsv_out, tsv_out_path)
                 report_written = True
     if not fasta_written:
         raise ValueError(f"Failed to find .fna file in {genbank_zip}.")
@@ -273,6 +283,23 @@ def sanitize_name(name):
         name = name.replace(c, '_')
     return name
 
+def fudge_isolate(isolate, accession, date, country, year):
+    """If isolate looks like a full /-separated descriptor then use it.
+    Otherwise try to approximate it from available metadata bits and pieces."""
+    full = None
+    if '/' in isolate:
+        full = isolate
+    else:
+        if country and isolate and year:
+            full = '/'.join([country, isolate, year])
+        elif country and year:
+            full = '/'.join([country, year])
+        elif isolate and year:
+            full = '/'.join([isolate, year])
+        elif isolate:
+            full = isolate
+    return full
+
 
 def rename_seqs(pb_in, data_report_tsv):
     """Rename sequence names in tree to include location, isolate name and date when available.
@@ -286,6 +313,7 @@ def rename_seqs(pb_in, data_report_tsv):
         accession_idx = header.index('accession')
         isolate_idx = header.index('isolate')
         date_idx = header.index('date')
+        country_idx = header.index('country')
         location_idx = header.index('location')
         # No header for rename_out; write header for metadata_out
         m_out.write('strain' + '\t' + '\t'.join(header))
@@ -295,32 +323,17 @@ def rename_seqs(pb_in, data_report_tsv):
         for line in tsv_in:
             fields = line.split('\t')
             accession = fields[accession_idx].strip()
-            isolate = fields[isolate_idx].strip()
+            isolate = sanitize_name(fields[isolate_idx].strip())
             date = fields[date_idx].strip()
-            location = fields[location_idx].strip()
-            isolate = sanitize_name(isolate)
-            country = None
-            if location:
-                location = sanitize_name(location)
-                country = location.split(':')[0]
+            country = sanitize_name(fields[country_idx].strip())
+            location = sanitize_name(fields[location_idx].strip())
             groups = re.match('^[0-9]{4}(-[0-9]{2})?(-[0-9]{2})?$', date)
             year = None
             if groups:
                 year = groups[1]
             if not date:
                 date = '?'
-            full = None
-            if '/' in isolate:
-                name = '|'.join([isolate, accession, date])
-            else:
-                if country and isolate and year:
-                    full = '/'.join([country, isolate, year])
-                elif country and year:
-                    full = '/'.join([country, year])
-                elif isolate and year:
-                    full = '/'.join([isolate, year])
-                elif isolate:
-                    full = isolate
+            full = fudge_isolate(isolate, accession, date, country, year)
             if full:
                 name = '|'.join([full, accession, date])
             else:
