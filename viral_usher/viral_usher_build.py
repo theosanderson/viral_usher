@@ -302,7 +302,7 @@ def fudge_isolate(isolate, accession, date, country, year):
     return full
 
 
-def rename_seqs(pb_in, data_report_tsv):
+def rename_seqs(pb_in, data_report_tsv, acc_to_strain):
     """Rename sequence names in tree to include country, isolate name and date when available.
     Prepare metadata for taxonium."""
     rename_out = "rename.tsv"
@@ -324,6 +324,13 @@ def rename_seqs(pb_in, data_report_tsv):
             fields = line.split('\t')
             accession = fields[accession_idx].strip()
             isolate = sanitize_name(fields[isolate_idx].strip())
+            strain = sanitize_name(acc_to_strain.get(accession, ''))
+            if not isolate:
+                isolate = strain                
+            elif strain and len(isolate) < len(strain):
+                # Sometimes people use nice strain like "MVi/Marseille.FRA/21.19/20[D8]" but goofy isolate
+                # like "9061923678/9051834309" for MZ031240.1.  If strain is longer, use it.
+                isolate = strain
             date = fields[date_idx].strip()
             country = sanitize_name(fields[country_idx].strip())
             groups = re.match('^([0-9]{4})(-[0-9]{2})?(-[0-9]{2})?$', date)
@@ -392,6 +399,9 @@ def main():
     ncbi.download_refseq(assembly_id, refseq_zip)
     print(f"Downloading all GenBank genomes for taxid {taxid} to {genbank_zip}...")
     ncbi.download_genbank(taxid, genbank_zip)
+    # Get strain metadata from NCBI Virus API
+    print(f"Querying NCBI Virus API for extra metadata for taxid {taxid}...")
+    acc_to_strain = ncbi.query_ncbi_virus_metadata(taxid)
 
     refseq_fasta, refseq_gbff, refseq_length = unpack_refseq_zip(refseq_zip, refseq_acc)
 
@@ -403,7 +413,7 @@ def main():
     preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
     opt_unfiltered_tree = run_matoptimize(preopt_tree, msa_vcf)
     opt_tree = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length)
-    rename_tsv, metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report)
+    rename_tsv, metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report, acc_to_strain)
     usher_to_taxonium(viz_tree, metadata_tsv)
 
 

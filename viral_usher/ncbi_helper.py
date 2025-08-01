@@ -1,4 +1,5 @@
 import requests
+import csv
 import logging
 import sys
 import time
@@ -171,3 +172,23 @@ class NcbiHelper:
         """Download all GenBank genomes for the Taxonomy ID.  Return the .zip file name."""
         url = f"{NCBI_DATASETS_V2_BASE}/virus/taxon/{taxid}/genome/download?include_sequence=GENOME&aux_report=DATASET_REPORT&aux_report=BIOSAMPLE_REPORT&filename={filename}"
         return self.download_zip_file(url, filename)
+
+
+    def query_ncbi_virus_metadata(self, taxid):
+        """Query the undocumented NCBI Virus API to get a little extra metadata that isn't in NCBI Datasets.
+        (Currently just strain)"""
+        url = f"https://www.ncbi.nlm.nih.gov/genomes/VirusVariation/vvsearch2/?fq=%7B%21tag%3DSeqType_s%7DSeqType_s%3A%28%22Nucleotide%22%29&fq=VirusLineageId_ss%3A%28{taxid}%29&q=%2A%3A%2A&cmd=download&dlfmt=csv&fl=genbank_accession_rev%3AAccVer_s%2Cstrain%3AStrain_s"
+        # Request the URL, unpack the two-column CSV result into a dict, return the dict
+        resp = requests.get(url)
+        self.check_response(resp)
+        acc_to_strain = {}
+        reader = csv.reader(resp.text.strip().split('\n'))
+        for row in reader:
+            if len(row) != 2:
+                self.logger.warning(f"Unexpected number of columns in NCBI Virus API response: {len(row)} instead of 2")
+                return {}
+            row[0] = row[0].strip()  # genbank_accession_rev
+            row[1] = row[1].strip()  # strain
+            if row[0] and row[1]:
+                acc_to_strain[row[0]] = row[1]
+        return acc_to_strain
