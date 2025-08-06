@@ -138,19 +138,21 @@ class NcbiHelper:
             })
         return refseqs
 
-    def get_taxid_for_refseq(self, refseq_id):
+    def get_species_taxid_for_refseq(self, refseq_id):
         """Look up the Taxonomy ID for the given RefSeq ID using the NCBI EUtils API and Assembly database."""
         refseq_gi = self.esearch_request_one("nuccore", f"{refseq_id}[Accession]")
         if not refseq_gi:
             self.logger.warning(f"No RefSeq GI number for accession {refseq_id}")
             return None
         nuc_record = self.esummary_request_one("nuccore", refseq_gi)
-        taxid = nuc_record.get('taxid')
+        species = nuc_record.get("organism")
+        taxid = nuc_record.get("taxid")
         if not taxid:
             self.logger.warning(f"No nuccore taxid for RefSeq GI number {refseq_gi}, trying assembly database")
             assembly_record = self.esummary_request_one("assembly", refseq_gi)
+            species = assembly_record.get("organism", {}).get("scientificname", species)
             taxid = assembly_record.get("taxid")
-        return taxid
+        return species, taxid
 
     def download_zip_file(self, url, filename):
         """Download a zip file from the given URL and save it to the specified filename."""
@@ -172,7 +174,6 @@ class NcbiHelper:
         """Download all GenBank genomes for the Taxonomy ID.  Return the .zip file name."""
         url = f"{NCBI_DATASETS_V2_BASE}/virus/taxon/{taxid}/genome/download?include_sequence=GENOME&aux_report=DATASET_REPORT&aux_report=BIOSAMPLE_REPORT&filename={filename}"
         return self.download_zip_file(url, filename)
-
 
     def query_ncbi_virus_metadata(self, taxid):
         """Query the undocumented NCBI Virus API to get a little extra metadata that isn't in NCBI Datasets.

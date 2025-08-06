@@ -170,7 +170,7 @@ def record_to_fasta_bytes(record):
 def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion):
     """Run nextclade to align the filtered sequences to the reference, and pipe its output to faToVcf and gzip."""
     msa_vcf_gz = 'msa.vcf.gz'
-    nextclade_err_txt = 'nextclade.err.txt'
+    nextclade_err_txt = 'nextclade.align.err.log'
     start_time = time.perf_counter()
     # Set up the pipeline: | nextclade | faToVcf | gzip > msa.vcf.gz
     nextclade_cmd = [
@@ -217,7 +217,7 @@ def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_le
             raise
     elapsed_time = time.perf_counter() - start_time
     print(f"Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: {msa_vcf_gz} in {elapsed_time:.1f}s")
-    # gzip nextclade.err.txt (note: using gzip.open above did not work, it was written uncompressed.)
+    # gzip nextclade.align.err.log (note: using gzip.open above did not work, it was written uncompressed.)
     run_command(['gzip', '-f', nextclade_err_txt])
     return msa_vcf_gz
 
@@ -276,6 +276,43 @@ def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
     return pb_out
 
 
+def run_nextclade(nextclade_path, nextclade_clade_columns, genbank_fasta, extra_fasta, refseq_fasta):
+    """Run nextclade to assign sequences to clades.  Return dict mapping accession to clade."""
+    if not nextclade_path:
+        return {}, ""
+    nextclade_tsv = 'nextclade.clade.tsv'
+    # Nextclade --output-columns-selection does not accept individual customClades names; instead use 'dynamic'
+    # to get all of them.  See https://github.com/nextstrain/nextclade/issues/1667 .
+    nextclade_col_list = nextclade_clade_columns.split(',')
+    if len(nextclade_col_list) > 1:
+        output_columns = 'seqName,clade,dynamic'
+    else:
+        output_columns = 'seqName,clade'
+    start_time = time.perf_counter()
+    command = ['nextclade', 'run',
+               '--dataset-name', nextclade_path,
+               '--output-columns-selection', output_columns,
+               '--output-tsv', nextclade_tsv,
+               genbank_fasta, refseq_fasta]
+    if extra_fasta:
+        command.append(extra_fasta)
+    run_command(command, stdout_filename='nextclade.clade.out.log', stderr_filename='nextclade.clade.err.log')
+    elapsed_time = time.perf_counter() - start_time
+    print(f"Ran nextclade -d {nextclade_path} in {elapsed_time:.1f}s")
+    # Read the TSV file and return a dict mapping sequence names to clades
+    nextclade_assignments = {}
+    with open(nextclade_tsv, 'r') as tsv_in:
+        header_cols = tsv_in.readline().rstrip('\n').split('\t')
+        # 'dynamic' might have added clade and/or phenotype, motif etc. columns; keep all of them
+        nextclade_clade_columns = ','.join(header_cols[1:])
+        for line in tsv_in:
+            fields = line.rstrip('\n').split('\t')
+            seq_name = fields[0]
+            clades = fields[1:]
+            nextclade_assignments[seq_name] = clades
+    return nextclade_assignments, nextclade_clade_columns
+
+
 def sanitize_name(name):
     """Replace characters that could cause trouble, such as spaces or Newick special characters,
     with underscores."""
@@ -302,7 +339,7 @@ def fudge_isolate(isolate, accession, date, country, year):
     return full
 
 
-def rename_seqs(pb_in, data_report_tsv, acc_to_strain):
+def rename_seqs(pb_in, data_report_tsv, nextclade_assignments, nextclade_clade_columns, acc_to_strain):
     """Rename sequence names in tree to include country, isolate name and date when available.
     Prepare metadata for taxonium."""
     rename_out = "rename.tsv"
@@ -310,23 +347,28 @@ def rename_seqs(pb_in, data_report_tsv, acc_to_strain):
     pb_out = "viz.pb.gz"
     start_time = time.perf_counter()
     with gzip.open(data_report_tsv, 'rt') as tsv_in, open(rename_out, 'w') as r_out, gzip.open(metadata_out, 'wt') as m_out:
-        header = tsv_in.readline().split('\t')
+        header = tsv_in.readline().rstrip('\n').split('\t')
         accession_idx = header.index('accession')
         isolate_idx = header.index('isolate')
         date_idx = header.index('date')
         country_idx = header.index('country')
         # No header for rename_out; write header for metadata_out
-        m_out.write('strain' + '\t' + '\t'.join(header))
+        metadata_header = 'strain\t' + '\t'.join(header)
+        if nextclade_clade_columns:
+            nextclade_col_list = nextclade_clade_columns.split(',')
+            nextclade_col_list = [col if col.startswith('nextclade_') or col.startswith('Nextclade)_') else 'nextclade_' + col for col in nextclade_col_list]
+            metadata_header += '\t' + '\t'.join(nextclade_col_list)
+        m_out.write(metadata_header + '\n')
 
         # Create a mapping from accession to metadata
         acc_to_name = {}
         for line in tsv_in:
-            fields = line.split('\t')
+            fields = line.rstrip('\n').split('\t')
             accession = fields[accession_idx].strip()
             isolate = sanitize_name(fields[isolate_idx].strip())
             strain = sanitize_name(acc_to_strain.get(accession, ''))
             if not isolate:
-                isolate = strain                
+                isolate = strain
             elif strain and len(isolate) < len(strain):
                 # Sometimes people use nice strain like "MVi/Marseille.FRA/21.19/20[D8]" but goofy isolate
                 # like "9061923678/9051834309" for MZ031240.1.  If strain is longer, use it.
@@ -346,12 +388,16 @@ def rename_seqs(pb_in, data_report_tsv, acc_to_strain):
                 name = '|'.join([accession, date])
             acc_to_name[accession] = name
             r_out.write("\t".join([accession, name]) + '\n')
-            m_out.write(name + '\t' + '\t'.join(fields))
+            metadata = name + '\t' + '\t'.join(fields)
+            if nextclade_clade_columns:
+                clades = nextclade_assignments.get(accession, ['' * len(nextclade_col_list)])
+                metadata += '\t' + '\t'.join(clades)
+            m_out.write(metadata + '\n')
     command = ['matUtils', 'mask', '-i', pb_in, '--rename-samples', rename_out, '-o', pb_out]
     run_command(command, stdout_filename='matUtils.rename.out.log', stderr_filename='matUtils.rename.err.log')
     elapsed_time = time.perf_counter() - start_time
     print(f"Ran matUtils to rename sequences for display in {elapsed_time:.1f}s")
-    return rename_out, metadata_out, pb_out
+    return metadata_out, pb_out
 
 
 def get_header(tsv_in):
@@ -385,6 +431,8 @@ def main():
     refseq_acc = config_contents['refseq_acc']
     assembly_id = config_contents['refseq_assembly']
     taxid = config_contents['taxonomy_id']
+    nextclade_path = config_contents.get('nextclade_dataset', '')
+    nextclade_clade_columns = config_contents.get('nextclade_clade_columns', 'clade')
     min_length_proportion = float(config_contents.get('min_length_proportion', config.DEFAULT_MIN_LENGTH_PROPORTION))
     max_N_proportion = float(config_contents.get('max_N_proportion', config.DEFAULT_MAX_N_PROPORTION))
     max_parsimony = int(config_contents.get('max_parsimony', str(config.DEFAULT_MAX_PARSIMONY)))
@@ -413,7 +461,9 @@ def main():
     preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
     opt_unfiltered_tree = run_matoptimize(preopt_tree, msa_vcf)
     opt_tree = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length)
-    rename_tsv, metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report, acc_to_strain)
+    nextclade_assignments, nextclade_clade_columns = run_nextclade(nextclade_path, nextclade_clade_columns,
+                                                                   genbank_fasta, extra_fasta, refseq_fasta)
+    metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report, nextclade_assignments, nextclade_clade_columns, acc_to_strain)
     usher_to_taxonium(viz_tree, metadata_tsv)
 
 

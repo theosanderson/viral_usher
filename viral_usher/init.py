@@ -6,6 +6,7 @@ import importlib.metadata
 import re
 import logging
 from . import ncbi_helper
+from . import nextclade_helper
 from . import config
 
 
@@ -121,7 +122,81 @@ def get_refseq(ncbi, species_term, tax_entries, taxid, refseq_entries):
             print(f"Could not find assembly ID for RefSeq ID {refseq_id} -- can't download RefSeq.")
             print("Try choosing a different RefSeq.")
             return get_refseq(ncbi, species_term, tax_entries, taxid, refseq_entries)
-        return taxid, refseq_id, assembly_id
+        return species_term, taxid, refseq_id, assembly_id
+
+
+def clade_columns_from_dataset(nextclade_dataset):
+    """Return a comma-sep string of clade column names"""
+    return ','.join(nextclade_dataset.get("clades", {}).keys())
+
+
+def prompt_nextclade_path_columns(nextclade_datasets, species, is_interactive):
+    """Prompt the user to select a Nextclade dataset from a list of paths."""
+    if is_interactive:
+        print(f"\nFound the following Nextclade datasets for '{species}':")
+        for idx, dataset in enumerate(nextclade_datasets):
+            print(f"{idx+1}. {dataset['path']}: {dataset['name']}")
+        print(f"{len(nextclade_datasets)+1}. None of the above")
+        choice = prompt_int_choice("Enter a number to choose an option", 1, len(nextclade_datasets)+1)
+        if choice > len(nextclade_datasets):
+            return "", ""
+        else:
+            dataset = nextclade_datasets[choice-1]
+            return dataset["path"], clade_columns_from_dataset(dataset)
+    else:
+        print(f"Multiple Nextclade datasets found for '{species}':")
+        for dataset in nextclade_datasets:
+            print(f" - {dataset['path']}: {dataset['name']}")
+        print("Please specify one of these using the -x/--nextclade_dataset option.")
+        sys.exit(1)
+
+
+def search_nextclade_datasets(datasets, term):
+    """Search for Nextclade datasets that match the given term."""
+    matches = []
+    term_lower = term.lower()
+    for dataset in datasets:
+        if term_lower in dataset["name"].lower() or term_lower in dataset["path"].lower():
+            matches.append(dataset)
+    return matches
+
+
+def get_nextclade_path_columns(args_nextclade, species, is_interactive):
+    """Return a list of Nextclade dataset paths whose names match arg or species."""
+    print(f"Looking up Nextclade datasets for '{species}'...")
+    datasets = nextclade_helper.nextclade_get_index()
+    if args_nextclade == "":
+        return "", ""
+    elif args_nextclade:
+        for dataset in datasets:
+            if dataset["path"] == args_nextclade:
+                print(f"Using Nextclade dataset '{dataset['path']}'")
+                return dataset['path'], clade_columns_from_dataset(dataset)
+        print(f"Nextclade dataset '{args_nextclade}' not found. Available datasets:")
+        for dataset in datasets:
+            print(f"- {dataset['path']}: {dataset['name']}")
+        print("Please try again with a different value for -x/--nextclade_dataset.")
+        sys.exit(1)
+    elif species:
+        matches = search_nextclade_datasets(datasets, species)
+        if len(matches) == 0 and ' ' in species:
+            # Search each word in species separately; quit if a word has matches
+            for word in species.split(' '):
+                word_matches = search_nextclade_datasets(datasets, word)
+                if word_matches:
+                    matches = word_matches
+                    break
+        if len(matches) == 0:
+            print(f"No Nextclade datasets found for '{species}'.")
+            return "", ""
+        elif len(matches) == 1:
+            print(f"Found Nextclade dataset for '{species}': {matches[0]['path']}")
+            return matches[0]["path"], clade_columns_from_dataset(matches[0])
+        else:
+            matches.reverse()
+            return prompt_nextclade_path_columns(matches, species, is_interactive)
+    else:
+        return "", ""
 
 
 def check_proportion(proportion):
@@ -329,7 +404,8 @@ def handle_init(args):
         if not assembly_id:
             print(f"Could not find assembly ID for RefSeq ID {refseq_id} -- can't download RefSeq.")
             sys.exit(1)
-        taxid = str(ncbi.get_taxid_for_refseq(refseq_id))
+        species, taxid = ncbi.get_species_taxid_for_refseq(refseq_id)
+        taxid = str(taxid)
         if args.taxonomy_id:
             if taxid != args.taxonomy_id:
                 if taxid is None:
@@ -338,15 +414,16 @@ def handle_init(args):
                 print(f"\nNOTE: RefSeq ID {refseq_id} is associated with Taxonomy ID {taxid}, not the provided Taxonomy ID {args.taxonomy_id}.\n")
                 taxid = args.taxonomy_id
     elif args.taxonomy_id:
-        taxid, refseq_id, assembly_id = lookup_refseq(ncbi, args.species, [], args.taxonomy_id)
+        species, taxid, refseq_id, assembly_id = lookup_refseq(ncbi, args.species, [], args.taxonomy_id)
     elif args.species:
-        taxid, refseq_id, assembly_id = lookup_taxonomy_refseq(ncbi, args.species)
+        species, taxid, refseq_id, assembly_id = lookup_taxonomy_refseq(ncbi, args.species)
     else:
-        taxid, refseq_id, assembly_id = get_species_taxonomy_refseq(ncbi)
+        species, taxid, refseq_id, assembly_id = get_species_taxonomy_refseq(ncbi)
 
     # If --refseq and --workdir are given then accept defaults for other options
     is_interactive = not (args.refseq and args.workdir)
 
+    nextclade_path, nextclade_columns = get_nextclade_path_columns(args.nextclade_dataset, species, is_interactive)
     min_length_proportion = get_min_length_proportion(args.min_length_proportion, is_interactive)
     max_N_proportion = get_max_N_proportion(args.max_N_proportion, is_interactive)
     max_parsimony = get_max_parsimony(args.max_parsimony, is_interactive)
@@ -360,6 +437,8 @@ def handle_init(args):
         "refseq_acc": refseq_id,
         "refseq_assembly": assembly_id,
         "taxonomy_id": taxid,
+        "nextclade_dataset": nextclade_path,
+        "nextclade_clade_columns": nextclade_columns,
         "min_length_proportion": min_length_proportion,
         "max_N_proportion": max_N_proportion,
         "max_parsimony": max_parsimony,
