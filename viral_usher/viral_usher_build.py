@@ -31,12 +31,12 @@ def run_command(command, stdout_filename=None, stderr_filename=None, fail_ok=Fal
             pass
         else:
             if e.stderr:
-                print(f"{command[0]} failed: {e.stderr}\n{command}", file=sys.stderr)
+                print(f"{command[0]} failed: {e.stderr}\nFailed command: {' '.join(command)}", file=sys.stderr)
             elif stderr_filename:
-                print(f"{command[0]} failed, see {stderr_filename}\n{command}", file=sys.stderr)
+                print(f"{command[0]} failed, see {stderr_filename}\nFailed command: {' '.join(command)}", file=sys.stderr)
             else:
-                print(f"{command[0]} failed\n{command}", file=sys.stderr)
-            raise
+                print(f"{command[0]} failed\nFailed command: {' '.join(command)}", file=sys.stderr)
+            sys.exit(1)
     if stdout:
         stdout.close()
     if stderr:
@@ -408,13 +408,17 @@ def get_header(tsv_in):
     return header
 
 
-def usher_to_taxonium(pb_in, metadata_in):
+def usher_to_taxonium(pb_in, metadata_in, refseq_gbff):
     jsonl_out = "tree.jsonl.gz"
     start_time = time.perf_counter()
     columns = ','.join(get_header(metadata_in))
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
-               '--columns', columns, '--output', jsonl_out]
-    run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log')
+               '--columns', columns, '--genbank', refseq_gbff, '--output', jsonl_out]
+    if not run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log', fail_ok=True):
+        print("usher_to_taxonium failed with --genbank, trying again without --genbank.")
+        command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
+                   '--columns', columns, '--output', jsonl_out]
+        run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log')
     elapsed_time = time.perf_counter() - start_time
     print(f"Ran usher_to_taxonium in {elapsed_time:.1f}s")
     return jsonl_out
@@ -464,7 +468,7 @@ def main():
     nextclade_assignments, nextclade_clade_columns = run_nextclade(nextclade_path, nextclade_clade_columns,
                                                                    genbank_fasta, extra_fasta, refseq_fasta)
     metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report, nextclade_assignments, nextclade_clade_columns, acc_to_strain)
-    usher_to_taxonium(viz_tree, metadata_tsv)
+    usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff)
 
 
 if __name__ == "__main__":
