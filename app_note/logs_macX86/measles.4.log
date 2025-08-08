@@ -1,0 +1,18 @@
+Running pipeline with config file: measles/config.toml
+Using docker image angiehinrichs/viral_usher:v0.7.0
+Running pipeline with config file: config.toml
+Downloading RefSeq NC_001498.1 (Assembly GCF_000854845.1) genome to NC_001498.1.zip...
+Downloading all GenBank genomes for taxid 11234 to genbank_11234.zip...
+Querying NCBI Virus API for extra metadata for taxid 11234...
+Using min_length_proportion=0.8 (12715 bases) and max_N_proportion=0.25
+Wrote metadata TSV file: data_report.tsv.gz in 1.2s
+Processed 24707 sequences from GenBank and wrote fasta file with 1231 sequences passing filters: genbank.fasta.xz in 6.1s
+Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: msa.vcf.gz in 4.0s
+Created empty tree file: empty_tree.nwk
+Ran usher-sampled in 5.5s
+Ran matOptimize in 1.9s
+Ran matUtils to filter (--max-parsimony 1000 --max-branch-length 10000) in 0.2s
+Ran nextclade -d nextstrain/measles/N450/WHO-2012 in 4.3s
+Ran matUtils to rename sequences for display in 12.2s
+Ran usher_to_taxonium in 2.3s
+Success -- you can view /Users/angie/viral_usher/app_note/measles/tree.jsonl.gz using https://taxonium.org/ now.

@@ -1,0 +1,18 @@
+Running pipeline with config file: rsvA/config.toml
+Using docker image angiehinrichs/viral_usher:v0.7.0
+Running pipeline with config file: config.toml
+Downloading RefSeq NC_038235.1 (Assembly GCF_002815475.1) genome to NC_038235.1.zip...
+Downloading all GenBank genomes for taxid 11250 to genbank_11250.zip...
+Querying NCBI Virus API for extra metadata for taxid 11250...
+Using min_length_proportion=0.8 (12177 bases) and max_N_proportion=0.25
+Wrote metadata TSV file: data_report.tsv.gz in 4.2s
+Processed 58971 sequences from GenBank and wrote fasta file with 17630 sequences passing filters: genbank.fasta.xz in 75.4s
+Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: msa.vcf.gz in 212.5s
+Created empty tree file: empty_tree.nwk
+Ran usher-sampled in 45.6s
+Ran matOptimize in 158.8s
+Ran matUtils to filter (--max-parsimony 1000 --max-branch-length 10000) in 1.4s
+Ran nextclade -d nextstrain/rsv/a/EPI_ISL_412866 in 70.3s
+Ran matUtils to rename sequences for display in 3.2s
+Ran usher_to_taxonium in 16.7s
+Success -- you can view /cluster/home/angie/github/viral_usher/app_note/rsvA/tree.jsonl.gz using https://taxonium.org/ now.

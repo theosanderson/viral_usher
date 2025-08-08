@@ -1,0 +1,18 @@
+Running pipeline with config file: mumps/config.toml
+Using docker image angiehinrichs/viral_usher:v0.7.0
+Running pipeline with config file: config.toml
+Downloading RefSeq NC_002200.1 (Assembly GCF_000856685.1) genome to NC_002200.1.zip...
+Downloading all GenBank genomes for taxid 2560602 to genbank_2560602.zip...
+Querying NCBI Virus API for extra metadata for taxid 2560602...
+Using min_length_proportion=0.8 (12307 bases) and max_N_proportion=0.25
+Wrote metadata TSV file: data_report.tsv.gz in 0.7s
+Processed 14584 sequences from GenBank and wrote fasta file with 1334 sequences passing filters: genbank.fasta.xz in 3.7s
+Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: msa.vcf.gz in 4.3s
+Created empty tree file: empty_tree.nwk
+Ran usher-sampled in 4.8s
+Ran matOptimize in 2.8s
+Ran matUtils to filter (--max-parsimony 1000 --max-branch-length 10000) in 0.1s
+Ran matUtils to rename sequences for display in 7.3s
+usher_to_taxonium failed with --genbank, trying again without --genbank.
+Ran usher_to_taxonium in 3.2s
+Success -- you can view /Users/angie/viral_usher/app_note/mumps/tree.jsonl.gz using https://taxonium.org/ now.

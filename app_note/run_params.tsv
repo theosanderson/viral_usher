@@ -1,0 +1,6 @@
+species	refseq_len	genbank_count	filtered_count	aligned_count	got_nextclade
+mumps	15384	14584	1334	1334	no
+measles	15894	24693	1231	1231	yes
+oropouche_m	4385	2629	1597	800	no
+RSV-A	15222	58971	17630	17627	yes
+mpox	196858	10584	9941	9935	yes

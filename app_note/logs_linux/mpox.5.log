@@ -1,0 +1,18 @@
+Running pipeline with config file: mpox/config.toml
+Using docker image angiehinrichs/viral_usher:v0.7.0
+Running pipeline with config file: config.toml
+Downloading RefSeq NC_003310.1 (Assembly GCF_000857045.1) genome to NC_003310.1.zip...
+Downloading all GenBank genomes for taxid 10244 to genbank_10244.zip...
+Querying NCBI Virus API for extra metadata for taxid 10244...
+Using min_length_proportion=0.8 (157486 bases) and max_N_proportion=0.25
+Wrote metadata TSV file: data_report.tsv.gz in 1.3s
+Processed 10584 sequences from GenBank and wrote fasta file with 9941 sequences passing filters: genbank.fasta.xz in 806.0s
+Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: msa.vcf.gz in 431.1s
+Created empty tree file: empty_tree.nwk
+Ran usher-sampled in 1637.6s
+Ran matOptimize in 143.9s
+Ran matUtils to filter (--max-parsimony 1000 --max-branch-length 10000) in 1.0s
+Ran nextclade -d nextstrain/mpox/all-clades in 67.0s
+Ran matUtils to rename sequences for display in 0.9s
+Ran usher_to_taxonium in 9.2s
+Success -- you can view /cluster/home/angie/github/viral_usher/app_note/mpox/tree.jsonl.gz using https://taxonium.org/ now.
