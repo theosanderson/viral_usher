@@ -24,7 +24,7 @@ def check_docker_command():
     try:
         subprocess.run(['docker', 'images'], check=True, capture_output=True)
     except subprocess.CalledProcessError:
-        return False, "Unable to run 'docker --images' -- please make sure the docker daemon is running (e.g. on a Mac, start the Docker app)"
+        return False, "Unable to run 'docker images' -- please make sure the docker daemon is running (e.g. on a Mac, start the Docker app)"
     return True, None
 
 
