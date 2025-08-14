@@ -1,0 +1,6 @@
+species	linux_max_ram	mac_x86_max_ram	mac_arm_max_ram
+oropouche_m	209.3MiB	116MiB	71.1MiB
+mumps	707.4MiB	144.4MiB	304.7MiB
+measles	869MiB	246.2MiB	356.5MiB
+RSV	6.005GiB	3.161GiB	3.423GiB
+mpox	28.52GiB	6.001GiB	6.966GiB
