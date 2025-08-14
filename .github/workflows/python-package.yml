@@ -9,13 +9,13 @@ on:
     paths-ignore:
       - "Dockerfile"
       - "*.md"
-      - "app_note"
+      - "app_note/*"
   pull_request:
     branches: [ "main" ]
     paths-ignore:
       - "Dockerfile"
       - "*.md"
-      - "app_note"
+      - "app_note/*"
 
 jobs:
   build:
