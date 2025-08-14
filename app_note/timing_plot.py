@@ -1,8 +1,6 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-from io import StringIO
-import re
 
 
 def time_to_minutes(time_str):
@@ -18,6 +16,7 @@ def time_to_minutes(time_str):
         minutes = 0
         seconds = float(time_str)
     return minutes + seconds / 60.0
+
 
 # Read the data
 df = pd.read_csv("run_time.tsv", sep='\t')
@@ -46,14 +45,14 @@ fig, ax = plt.subplots(figsize=(14, 8))
 # Define colors for each platform
 platform_colors = {
     'linux': '#1f77b4',      # blue
-    'macX86': '#ff7f0e',     # orange  
+    'macX86': '#ff7f0e',     # orange
     'macArm': '#2ca02c'      # green
 }
 
 # Define markers for each platform
 platform_markers = {
     'linux': 'o',
-    'macX86': 's', 
+    'macX86': 's',
     'macArm': '^'
 }
 
@@ -68,13 +67,13 @@ virus_positions = np.arange(len(viruses))
 # Plot points for each platform-virus combination
 for i, platform in enumerate(platforms):
     platform_data = plot_df[plot_df['platform'] == platform]
-    
+
     for j, virus in enumerate(viruses):
         virus_data = platform_data[platform_data['virus'] == virus]
-        
+
         # X position: virus position + platform offset
         x_pos = virus_positions[j] + (i - 1) * platform_width
-        
+
         # Plot individual run points with some jitter for visibility
         x_jitter = np.random.normal(0, 0.02, len(virus_data))  # small random offset
         ax.scatter(
@@ -90,7 +89,7 @@ for i, platform in enumerate(platforms):
 # Customize the plot
 ax.set_xlabel('Viral Species', fontsize=12, fontweight='bold')
 ax.set_ylabel('Runtime (minutes)', fontsize=12, fontweight='bold')
-ax.set_title('Performance Comparison Across Viral Species and Platforms\n(Individual Run Times)', 
+ax.set_title('Performance Comparison Across Viral Species and Platforms\n(Individual Run Times)',
              fontsize=14, fontweight='bold', pad=20)
 
 # Set x-axis labels and positions
