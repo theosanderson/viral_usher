@@ -46,6 +46,9 @@ time augur align \
   --nthreads auto \
   --fill-gaps
 #MacARM: real	5m41.506s
+#linux: real    3m15.227s
+#linux: real    3m12.016s
+#linux: real    3m5.149s
 
 # Added --nthreads auto
 time augur tree \
@@ -53,6 +56,9 @@ time augur tree \
   --nthreads auto \
   --output results/tree_raw.nwk
 #MacARM: real	4m54.421s
+#linux: real    9m5.737s
+#linux: real    8m5.713s
+#linux: real    8m47.257s
 
 time augur refine \
   --tree results/tree_raw.nwk \
@@ -66,6 +72,9 @@ time augur refine \
   --date-inference marginal \
   --clock-filter-iqd 4
 #MacARM: real	4m21.997s
+#linux: real    20m57.729s
+#linux: real    21m8.332s
+#linux: real    16m38.287s
 
 # Only country, not region because viral_usher doesn't make that metadata column
 time augur traits \
@@ -75,6 +84,9 @@ time augur traits \
   --columns country \
   --confidence
 #MacARM: real	0m4.766s
+#linux: real    0m19.099s
+#linux: real    0m18.182s
+#linux: real    0m18.072s
 
 time augur ancestral \
   --tree results/tree.nwk \
@@ -82,6 +94,9 @@ time augur ancestral \
   --output-node-data results/nt_muts.json \
   --inference joint
 #MacARM: real	0m17.491s
+#linux: real    0m50.862s
+#linux: real    2m11.561s
+#linux: real    0m44.757s
 
 time augur translate \
   --tree results/tree.nwk \
@@ -89,6 +104,9 @@ time augur translate \
   --reference-sequence $reference_gbff \
   --output-node-data results/aa_muts.json
 #MacARM: real	0m2.212s
+#linux: real    0m7.830s
+#linux: real    0m7.679s
+#linux: real    0m6.651s
 
 time augur export v2 \
   --tree results/tree.nwk \
@@ -107,7 +125,13 @@ time augur export v2 \
 #	WARNING:  The filter "author" does not appear as a property on any tree nodes.
 #Validation of 'auspice/measles.json' succeeded, but there were warnings you may want to resolve.
 #MacARM: real	0m1.601s
+#linux: real    0m5.253s
+#linux: real    0m4.913s
+#linux: real    0m3.967s
 
 exit
 EOF
-#15m5.037s
+#MacARM: 15m5.037s
+#linux: real    34m44.554s
+#limux: real    35m11.209s
+#linux: real    29m46.723s

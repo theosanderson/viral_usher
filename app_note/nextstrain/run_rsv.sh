@@ -46,12 +46,16 @@ time augur align \
   --nthreads auto \
   --fill-gaps
 #MacARM: ran for 255m46.847s then got auto-killed or something, no output
+#linux: real    160m58.216s
+#linux: real    164m21.261s
 
 # Added --nthreads auto
 time augur tree \
   --alignment results/aligned.fasta \
   --nthreads auto \
   --output results/tree_raw.nwk
+#linux: real    147m17.485s
+#linux: real    167m27.089s
 
 time augur refine \
   --tree results/tree_raw.nwk \
@@ -64,6 +68,8 @@ time augur refine \
   --date-confidence \
   --date-inference marginal \
   --clock-filter-iqd 4
+#linux: real    211m12.688s
+#linux: real    246m7.767s
 
 # Only country, not region because viral_usher doesn't make that metadata column
 time augur traits \
@@ -72,18 +78,24 @@ time augur traits \
   --output-node-data results/traits.json \
   --columns country \
   --confidence
+# linux: real    5m2.708s
+# linux: real    6m10.003s
 
 time augur ancestral \
   --tree results/tree.nwk \
   --alignment results/aligned.fasta \
   --output-node-data results/nt_muts.json \
   --inference joint
+#linux: real    14m21.355s
+#linux: real    16m34.040s
 
 time augur translate \
   --tree results/tree.nwk \
   --ancestral-sequences results/nt_muts.json \
   --reference-sequence $reference_gbff \
   --output-node-data results/aa_muts.json
+#linux: real    1m1.978s
+#linux: real    1m12.171s
 
 time augur export v2 \
   --tree results/tree.nwk \
@@ -96,7 +108,10 @@ time augur export v2 \
   --lat-longs $config_dir/lat_longs.tsv \
   --auspice-config $config_dir/auspice_config.json \
   --output $auspice_json
+#linux: real    0m58.549s
+#linux: real    1m2.688s
 
 exit
 EOF
-#
+#linux: real    540m55.724s
+#linux: real    602m59.173s
