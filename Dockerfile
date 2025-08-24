@@ -5,12 +5,18 @@
 
 # Use the python base image so we can pip install without a hassle
 # (Debian apt-installed python wants packages either from apt or in a venv)
-FROM python:latest AS build
+FROM python:3.12 AS build
 
 # Build UShER from source
 RUN apt-get update && apt-get install -y sudo
 WORKDIR /usher
 RUN git clone https://github.com/yatisht/usher.git
+# Install gcc-12 and set env variables to use gcc-12 because gcc-14 (in the latest Docker base images)
+# fails on TBB code because it expects C++20 syntax.
+# Running cmake with -DCMAKE_CXX_STANDARD=11 -DCMAKE_CXX_FLAGS="-std=c++11"  didn't work.
+RUN apt-get update && apt-get install -y gcc-12 g++-12
+ENV CC=gcc-12
+ENV CXX=g++-12
 RUN cd usher \
     && bash -x install/installUbuntu.sh
 
@@ -31,7 +37,7 @@ RUN mkdir bin && cd bin \
 
 # Done with build stage; set up final image
 
-FROM python:latest
+FROM python:3.12
 
 WORKDIR /app
 
