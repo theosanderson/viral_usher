@@ -44,6 +44,16 @@ def run_command(command, stdout_filename=None, stderr_filename=None, fail_ok=Fal
     return success
 
 
+def run_command_get_stdout(command):
+    """Run a command and return its stdout output."""
+    try:
+        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return result.stdout.decode('utf-8')
+    except subprocess.CalledProcessError as e:
+        print(f"Command failed: {e.stderr}\nFailed command: {' '.join(command)}", file=sys.stderr)
+        sys.exit(1)
+
+
 def unpack_refseq_zip(refseq_zip, refseq_acc):
     """Extract and rename the fasta and gbff files from the RefSeq zip."""
     with zipfile.ZipFile(refseq_zip, 'r') as zip_ref:
@@ -93,6 +103,7 @@ def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, 
         SeqIO.write(record, fasta_out, 'fasta')
     elapsed_time = time.perf_counter() - start_time
     print(f"Processed {record_count} sequences from GenBank and wrote fasta file with {passed_count} sequences passing filters: {fasta_out_path} in {elapsed_time:.1f}s")
+    return record_count, passed_count
 
 
 def extract_metadata(jsonl_in, tsv_out, tsv_out_path):
@@ -134,7 +145,7 @@ def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
         for name in zip_ref.namelist():
             if name.endswith('.fna'):
                 with io.TextIOWrapper(zip_ref.open(name, 'r'), encoding='utf-8') as fasta_in, lzma.open(fasta_out_path, 'wt') as fasta_out:
-                    filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, fasta_out_path)
+                    genbank_count, passed_count = filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, fasta_out_path)
                 fasta_written = True
             elif name.endswith('data_report.jsonl'):
                 with zip_ref.open(name) as jsonl_in, gzip.open(tsv_out_path, 'wt') as tsv_out:
@@ -144,7 +155,7 @@ def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
         raise ValueError(f"Failed to find .fna file in {genbank_zip}.")
     if not report_written:
         raise ValueError(f"Failed to find data_report.jsonl file in {genbank_zip}.")
-    return fasta_out_path, tsv_out_path
+    return fasta_out_path, tsv_out_path, genbank_count, passed_count
 
 
 def open_maybe_decompress(filename, mode='rt', encoding='utf-8'):
@@ -219,7 +230,14 @@ def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_le
     print(f"Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: {msa_vcf_gz} in {elapsed_time:.1f}s")
     # gzip nextclade.align.err.log (note: using gzip.open above did not work, it was written uncompressed.)
     run_command(['gzip', '-f', nextclade_err_txt])
-    return msa_vcf_gz
+    # Count the number of samples in the #CHROM header line of msa.vcf.gz
+    with gzip.open(msa_vcf_gz, 'rt') as vcf_in:
+        for line in vcf_in:
+            if line.startswith('#CHROM'):
+                header = line.strip().split('\t')
+                aligned_count = len(header) - 9  # Subtract fixed columns
+                break
+    return msa_vcf_gz, aligned_count
 
 
 def make_empty_tree():
@@ -273,7 +291,14 @@ def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
     run_command(command, stdout_filename='matUtils.filter.out.log', stderr_filename='matUtils.filter.err.log')
     elapsed_time = time.perf_counter() - start_time
     print(f"Ran matUtils to filter (--max-parsimony {max_parsimony} --max-branch-length {max_branch_length}) in {elapsed_time:.1f}s")
-    return pb_out
+    # Run matUtils summary to get the final number of samples in the tree
+    command = ['matUtils', 'summary', '-i', pb_out]
+    summary_output = run_command_get_stdout(command)
+    for line in summary_output.split('\n'): 
+        if line.startswith('Total Samples in Tree:'):
+            tree_tip_count = int(line.split(':')[1].strip())
+            break
+    return pb_out, tree_tip_count
 
 
 def run_nextclade(nextclade_path, nextclade_clade_columns, genbank_fasta, extra_fasta, refseq_fasta):
@@ -424,6 +449,14 @@ def usher_to_taxonium(pb_in, metadata_in, refseq_gbff):
     return jsonl_out
 
 
+def write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count):
+    output_stats = [["refseq_acc", "refseq_length", "gb_count", "filtered_count", "aligned_count", "tree_tip_count"],
+                    [refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count]]
+    with open("output_stats.tsv", "w") as f:
+        for row in output_stats:
+            f.write("\t".join(map(str, row)) + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(prog="viral_usher_build")
     parser.add_argument("--config", type=str, required=True, help="Path to config file input")
@@ -459,15 +492,16 @@ def main():
 
     min_length = int(refseq_length * min_length_proportion)
     print(f"Using min_length_proportion={min_length_proportion} ({min_length} bases) and max_N_proportion={max_N_proportion}")
-    genbank_fasta, data_report = unpack_genbank_zip(genbank_zip, min_length, max_N_proportion)
-    msa_vcf = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion)
+    genbank_fasta, data_report, gb_count, filtered_count = unpack_genbank_zip(genbank_zip, min_length, max_N_proportion)
+    msa_vcf, aligned_count = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion)
     empty_tree = make_empty_tree()
     preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
     opt_unfiltered_tree = run_matoptimize(preopt_tree, msa_vcf)
-    opt_tree = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length)
+    opt_tree, tree_tip_count = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length)
     nextclade_assignments, nextclade_clade_columns = run_nextclade(nextclade_path, nextclade_clade_columns,
                                                                    genbank_fasta, extra_fasta, refseq_fasta)
     metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report, nextclade_assignments, nextclade_clade_columns, acc_to_strain)
+    write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count)
     usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff)
 
 
