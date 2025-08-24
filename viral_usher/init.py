@@ -182,6 +182,8 @@ def get_nextclade_path_columns(args_nextclade, species, is_interactive):
         if len(matches) == 0 and ' ' in species:
             # Search each word in species separately; quit if a word has matches
             for word in species.split(' '):
+                if word == "human" or word == "virus":
+                    continue
                 word_matches = search_nextclade_datasets(datasets, word)
                 if word_matches:
                     matches = word_matches
