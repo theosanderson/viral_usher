@@ -54,6 +54,20 @@ def run_command_get_stdout(command):
         sys.exit(1)
 
 
+def normalize_segment(segment):
+    # Many viruses have segments S (small), M (medium), and L (large).  The vast majority of records use S, M or L
+    # but there are a few oddballs that spell it out or use middle instead of medium.  Change those to S/M/L.
+    if segment and len(segment) > 1:
+        seg_lower = segment.lower()
+        if seg_lower == 'small':
+            segment = 'S'
+        elif seg_lower == 'large':
+            segment = 'L'
+        elif seg_lower == 'medium' or seg_lower == 'middle':
+            segment = 'M'
+    return segment
+
+
 def unpack_refseq_zip(refseq_zip, refseq_acc):
     """Extract and rename the fasta and gbff files from the RefSeq zip."""
     with zipfile.ZipFile(refseq_zip, 'r') as zip_ref:
@@ -79,7 +93,20 @@ def unpack_refseq_zip(refseq_zip, refseq_acc):
             raise ValueError(f"Failed to find .fna file with {refseq_acc} in {refseq_zip}.")
         if not gbff_found:
             raise ValueError(f"Failed to find .gbff file in {refseq_zip}.")
-    return fasta_path, gbff_path, length
+    # Search for segment in refseq.gbff's record for refseq_acc
+    segment = None
+    with open(gbff_path, 'r') as gbff_in:
+        for record in SeqIO.parse(gbff_in, 'genbank'):
+            if record.id == refseq_acc:
+                for feature in record.features:
+                    if "segment" in feature.qualifiers:
+                        segment = normalize_segment(feature.qualifiers["segment"][0])
+                        print(f"Found segment {segment} for {refseq_acc} in {gbff_path}")
+                        break
+                break
+    if not segment:
+        print(f"No segment found for {refseq_acc} in {gbff_path}")
+    return fasta_path, gbff_path, length, segment
 
 
 def passes_seq_filter(record, min_length, max_N_proportion):
@@ -87,13 +114,16 @@ def passes_seq_filter(record, min_length, max_N_proportion):
     return len(record.seq) >= min_length and record.seq.count('N') / len(record.seq) <= max_N_proportion
 
 
-def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, fasta_out_path):
+def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, passed_accessions, fasta_out_path):
     # Filter fasta file and chop descriptions to get accession as name in nextclade
     start_time = time.perf_counter()
     record_count = 0
     passed_count = 0
     for record in SeqIO.parse(fasta_in, 'fasta'):
         record_count += 1
+        # Skip if accession is not in passed_accessions
+        if record.id not in passed_accessions:
+            continue
         # Filter sequences by length and proportion of ambiguous characters
         if not passes_seq_filter(record, min_length, max_N_proportion):
             continue
@@ -106,11 +136,15 @@ def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, 
     return record_count, passed_count
 
 
-def extract_metadata(jsonl_in, tsv_out, tsv_out_path):
+def extract_metadata(jsonl_in, refseq_segment, tsv_out, tsv_out_path):
     # Extract only the bits we want from data_report.jsonl to data_report.tsv
     start_time = time.perf_counter()
+    passed_accessions = set()
     # Write header
-    tsv_out.write("\t".join(["accession", "isolate", "country", "location", "date", "length", "biosample", "submitter"]) + "\n")
+    header = ["accession", "isolate", "country", "location", "date", "length", "biosample", "submitter", "authors"]
+    if refseq_segment:
+        header.append("segment")
+    tsv_out.write("\t".join(header) + "\n")
     for line in jsonl_in:
         item = json.loads(line)
         # Only keep selected fields; adjust as needed
@@ -126,12 +160,23 @@ def extract_metadata(jsonl_in, tsv_out, tsv_out_path):
         submitter_country = item.get('submitter', {}).get('country', '')
         if submitter and submitter_country:
             submitter = f"{submitter}, {submitter_country}"
-        tsv_out.write("\t".join([accession, isolate, country, location, date, str(length), biosample, submitter]) + "\n")
+        authors = ", ".join(item.get('submitter', {}).get('names', []))
+        if refseq_segment:
+            segment = normalize_segment(item.get('segment', ''))
+            # If segment is given and it doesn't match the RefSeq segment, skip this record
+            if segment and segment != refseq_segment:
+                continue
+        tsv_out.write("\t".join([accession, isolate, country, location, date, str(length), biosample, submitter, authors]))
+        if refseq_segment:
+            tsv_out.write(f"\t{segment}")
+        tsv_out.write("\n")
+        passed_accessions.add(accession)
     elapsed_time = time.perf_counter() - start_time
     print(f"Wrote metadata TSV file: {tsv_out_path} in {elapsed_time:.1f}s")
+    return passed_accessions
 
 
-def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
+def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion, refseq_segment):
     """Process the fasta and data_report.jsonl files from the GenBank zip,
     filtering the fasta by length and proportion of ambiguous characters and
     keeping only the accession part of sequence names, and extracting basic
@@ -139,22 +184,19 @@ def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion):
     Compress fasta with lzma (xz) and TSV with gzip"""
     fasta_out_path = 'genbank.fasta.xz'
     tsv_out_path = 'data_report.tsv.gz'
-    fasta_written = False
-    report_written = False
     with zipfile.ZipFile(genbank_zip, 'r') as zip_ref:
-        for name in zip_ref.namelist():
-            if name.endswith('.fna'):
-                with io.TextIOWrapper(zip_ref.open(name, 'r'), encoding='utf-8') as fasta_in, lzma.open(fasta_out_path, 'wt') as fasta_out:
-                    genbank_count, passed_count = filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, fasta_out_path)
-                fasta_written = True
-            elif name.endswith('data_report.jsonl'):
-                with zip_ref.open(name) as jsonl_in, gzip.open(tsv_out_path, 'wt') as tsv_out:
-                    extract_metadata(jsonl_in, tsv_out, tsv_out_path)
-                report_written = True
-    if not fasta_written:
-        raise ValueError(f"Failed to find .fna file in {genbank_zip}.")
-    if not report_written:
-        raise ValueError(f"Failed to find data_report.jsonl file in {genbank_zip}.")
+        namelist = zip_ref.namelist()
+        data_report_paths = [name for name in namelist if name.endswith('data_report.jsonl')]
+        if len(data_report_paths) != 1:
+            raise ValueError(f"Expected exactly one data_report.jsonl file in {genbank_zip}, found: {data_report_paths}")
+        genomic_fna_paths = [name for name in namelist if name.endswith('genomic.fna')]
+        if len(genomic_fna_paths) != 1:
+            raise ValueError(f"Expected exactly one genomic.fna file in {genbank_zip}, found: {genomic_fna_paths}")
+        # Unpack data_report.jsonl first so we can filter by segment if necessary
+        with zip_ref.open(data_report_paths[0]) as jsonl_in, gzip.open(tsv_out_path, 'wt') as tsv_out:
+            passed_accessions = extract_metadata(jsonl_in, refseq_segment, tsv_out, tsv_out_path)
+        with io.TextIOWrapper(zip_ref.open(genomic_fna_paths[0], 'r'), encoding='utf-8') as fasta_in, lzma.open(fasta_out_path, 'wt') as fasta_out:
+            genbank_count, passed_count = filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, passed_accessions, fasta_out_path)
     return fasta_out_path, tsv_out_path, genbank_count, passed_count
 
 
@@ -296,7 +338,7 @@ def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
     # Run matUtils summary to get the final number of samples in the tree
     command = ['matUtils', 'summary', '-i', pb_out]
     summary_output = run_command_get_stdout(command)
-    for line in summary_output.split('\n'): 
+    for line in summary_output.split('\n'):
         if line.startswith('Total Samples in Tree:'):
             tree_tip_count = int(line.split(':')[1].strip())
             break
@@ -501,11 +543,11 @@ def main():
     print(f"Querying NCBI Virus API for extra metadata for taxid {taxid}...")
     acc_to_strain = ncbi.query_ncbi_virus_metadata(taxid)
 
-    refseq_fasta, refseq_gbff, refseq_length = unpack_refseq_zip(refseq_zip, refseq_acc)
+    refseq_fasta, refseq_gbff, refseq_length, refseq_segment = unpack_refseq_zip(refseq_zip, refseq_acc)
 
     min_length = int(refseq_length * min_length_proportion)
     print(f"Using min_length_proportion={min_length_proportion} ({min_length} bases) and max_N_proportion={max_N_proportion}")
-    genbank_fasta, data_report, gb_count, filtered_count = unpack_genbank_zip(genbank_zip, min_length, max_N_proportion)
+    genbank_fasta, data_report, gb_count, filtered_count = unpack_genbank_zip(genbank_zip, min_length, max_N_proportion, refseq_segment)
     msa_vcf, aligned_count = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion)
     empty_tree = make_empty_tree()
     preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
