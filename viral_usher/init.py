@@ -39,11 +39,11 @@ def prompt_int_choice(prompt, min_value=1, max_value=None):
 
 
 def prompt_taxonomy_id(species_term, tax_entries):
-    """Given a list of NCBI Taxonomy records, display to the user and ask them to choose one,
+    """Given a list of NCBI Datasets taxonomy match records, display to the user and ask them to choose one,
     also giving an option for None of the above / go back.  Return 1-based index of user's choice."""
-    print(f"\nFound the following Taxonomy IDs for '{species_term}':")
+    print(f"\nFound the following matches for '{species_term}':")
     for idx, entry in enumerate(tax_entries):
-        print(f"{idx+1}. {entry['sci_name']} (Taxonomy ID: {entry['tax_id']})")
+        print(f"{idx+1}. {entry['sci_name']}")
     print(f"{len(tax_entries)+1}. None of the above, go back")
     return prompt_int_choice("Enter a number to choose an option", 1, len(tax_entries)+1)
 
@@ -104,7 +104,7 @@ def lookup_refseq(ncbi, species_term, tax_entries, taxid):
     if refseq_entries:
         return get_refseq(ncbi, species_term, tax_entries, taxid, refseq_entries)
     else:
-        print(f"No RefSeqs found for Taxonomy ID '{taxid}'.  Try a different Taxonomy ID.")
+        print(f"No RefSeqs found for Taxonomy ID '{taxid}'.  Try a different match from species search.")
         return get_taxonomy_refseq(ncbi, species_term, tax_entries)
 
 
@@ -407,20 +407,23 @@ def handle_init(args):
             print(f"Could not find assembly ID for RefSeq ID {refseq_id} -- can't download RefSeq.")
             sys.exit(1)
         species, taxid = ncbi.get_species_taxid_for_refseq(refseq_id)
+        taxid = ncbi.get_species_level_taxid(taxid)
         taxid = str(taxid)
         if args.taxonomy_id:
             if taxid != args.taxonomy_id:
                 if taxid is None:
                     print(f"No taxid for refseq GI for {refseq_id}")
                 # TODO: it's not a problem if the two taxids have an ancestor-descendant relationship -- look it up.
-                print(f"\nNOTE: RefSeq ID {refseq_id} is associated with Taxonomy ID {taxid}, not the provided Taxonomy ID {args.taxonomy_id}.\n")
+                print(f"\nNOTE: RefSeq ID {refseq_id} is associated with species-level Taxonomy ID {taxid}, not the provided Taxonomy ID {args.taxonomy_id}.\n")
                 taxid = args.taxonomy_id
-    elif args.taxonomy_id:
-        species, taxid, refseq_id, assembly_id = lookup_refseq(ncbi, args.species, [], args.taxonomy_id)
-    elif args.species:
-        species, taxid, refseq_id, assembly_id = lookup_taxonomy_refseq(ncbi, args.species)
     else:
-        species, taxid, refseq_id, assembly_id = get_species_taxonomy_refseq(ncbi)
+        if args.taxonomy_id:
+            species, taxid, refseq_id, assembly_id = lookup_refseq(ncbi, args.species, [], args.taxonomy_id)
+        elif args.species:
+            species, taxid, refseq_id, assembly_id = lookup_taxonomy_refseq(ncbi, args.species)
+        else:
+            species, taxid, refseq_id, assembly_id = get_species_taxonomy_refseq(ncbi)
+        taxid = ncbi.get_species_level_taxid(taxid)
 
     # If --refseq and --workdir are given then accept defaults for other options
     is_interactive = not (args.refseq and args.workdir)

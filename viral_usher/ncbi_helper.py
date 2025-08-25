@@ -4,12 +4,15 @@ import logging
 import sys
 import time
 import json
+import xml.etree.ElementTree as ET
 
 NCBI_DATASETS_V2_BASE = "https://api.ncbi.nlm.nih.gov/datasets/v2"
 NCBI_DATASETS_TAXONOMY_SUGGEST_URL = f"{NCBI_DATASETS_V2_BASE}/taxonomy/taxon_suggest"
-NCBI_EUTILS_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-NCBI_EUTILS_SUMMARY_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
-NCBI_EUTILS_ELINK_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi"
+NCBI_EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+NCBI_EUTILS_SEARCH_URL = f"{NCBI_EUTILS_BASE}/esearch.fcgi"
+NCBI_EUTILS_SUMMARY_URL = f"{NCBI_EUTILS_BASE}/esummary.fcgi"
+NCBI_EUTILS_ELINK_URL = f"{NCBI_EUTILS_BASE}/elink.fcgi"
+NCBI_EUTILS_EFETCH_URL = f"{NCBI_EUTILS_BASE}/efetch.fcgi"
 
 
 class NcbiHelper:
@@ -180,6 +183,7 @@ class NcbiHelper:
         (Currently just strain)"""
         url = f"https://www.ncbi.nlm.nih.gov/genomes/VirusVariation/vvsearch2/?fq=%7B%21tag%3DSeqType_s%7DSeqType_s%3A%28%22Nucleotide%22%29&fq=VirusLineageId_ss%3A%28{taxid}%29&q=%2A%3A%2A&cmd=download&dlfmt=csv&fl=genbank_accession_rev%3AAccVer_s%2Cstrain%3AStrain_s"
         # Request the URL, unpack the two-column CSV result into a dict, return the dict
+        time.sleep(1)
         resp = requests.get(url)
         self.check_response(resp)
         acc_to_strain = {}
@@ -193,3 +197,18 @@ class NcbiHelper:
             if row[0] and row[1]:
                 acc_to_strain[row[0]] = row[1]
         return acc_to_strain
+
+    def get_species_level_taxid(self, subspecies_taxid):
+        """Return the species-level Taxonomy ID for a given subspecies Taxonomy ID."""
+        # EFETCH with retmode=json returns only the subspecies ID, but I need the whole record with lineage etc.
+        # That requires parsing the XML response.
+        time.sleep(1)
+        resp = requests.get(NCBI_EUTILS_EFETCH_URL, params={"id": subspecies_taxid, "db": "taxonomy"})
+        self.check_response(resp)
+        # Parse the XML response to find the species-level Taxonomy ID
+        root = ET.fromstring(resp.content)
+        for taxon in root.findall(".//Taxon"):
+            if taxon.find("Rank").text == "species":
+                print(f"Found species-level Taxonomy ID: {taxon.find('TaxId').text} for subspecies Taxonomy ID: {subspecies_taxid}")
+                return taxon.find("TaxId").text
+        return subspecies_taxid
