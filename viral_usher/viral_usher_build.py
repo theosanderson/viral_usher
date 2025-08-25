@@ -282,11 +282,13 @@ def run_matoptimize(pb_file, vcf_file):
 def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
     """Run matUtils extract to filter sequences/branches and collapse tree post-matOptimize"""
     pb_out = 'optimized.pb.gz'
+    sample_names_out = 'tree_samples.txt'
     start_time = time.perf_counter()
     command = ['matUtils', 'extract', '-i', opt_unfiltered_tree,
                '--max-parsimony', str(max_parsimony),
                '--max-branch-length', str(max_branch_length),
                '--collapse-tree',
+               '--used-samples', sample_names_out,
                '-o', pb_out]
     run_command(command, stdout_filename='matUtils.filter.out.log', stderr_filename='matUtils.filter.err.log')
     elapsed_time = time.perf_counter() - start_time
@@ -298,7 +300,7 @@ def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
         if line.startswith('Total Samples in Tree:'):
             tree_tip_count = int(line.split(':')[1].strip())
             break
-    return pb_out, tree_tip_count
+    return pb_out, sample_names_out, tree_tip_count
 
 
 def run_nextclade(nextclade_path, nextclade_clade_columns, genbank_fasta, extra_fasta, refseq_fasta):
@@ -364,15 +366,25 @@ def fudge_isolate(isolate, accession, date, country, year):
     return full
 
 
-def rename_seqs(pb_in, data_report_tsv, nextclade_assignments, nextclade_clade_columns, acc_to_strain):
+def rename_seqs(pb_in, data_report_tsv, nextclade_assignments, nextclade_clade_columns, acc_to_strain, sample_names):
     """Rename sequence names in tree to include country, isolate name and date when available.
     Prepare metadata for taxonium."""
     rename_out = "rename.tsv"
     metadata_out = "metadata.tsv.gz"
     pb_out = "viz.pb.gz"
     start_time = time.perf_counter()
-    with gzip.open(data_report_tsv, 'rt') as tsv_in, open(rename_out, 'w') as r_out, gzip.open(metadata_out, 'wt') as m_out:
-        header = tsv_in.readline().rstrip('\n').split('\t')
+    # Use a subprocess to pipe: gzip -dc {data_report_tsv} | grep -Fwf {sample_names}
+    grep_cmd = ['grep', '-Fwf', sample_names]
+    gzip_cmd = ['gzip', '-dc', data_report_tsv]
+    with open(rename_out, 'w') as r_out, gzip.open(metadata_out, 'wt') as m_out:
+        # Start gzip process
+        gzip_proc = subprocess.Popen(gzip_cmd, stdout=subprocess.PIPE)
+        # Start grep process, reading from gzip's stdout
+        grep_proc = subprocess.Popen(grep_cmd, stdin=gzip_proc.stdout, stdout=subprocess.PIPE, text=True)
+        gzip_proc.stdout.close()  # Allow gzip to receive SIGPIPE if grep exits
+        # Read header from data_report_tsv (not filtered by grep)
+        with gzip.open(data_report_tsv, 'rt') as tsv_in:
+            header = tsv_in.readline().rstrip('\n').split('\t')
         accession_idx = header.index('accession')
         isolate_idx = header.index('isolate')
         date_idx = header.index('date')
@@ -387,7 +399,8 @@ def rename_seqs(pb_in, data_report_tsv, nextclade_assignments, nextclade_clade_c
 
         # Create a mapping from accession to metadata
         acc_to_name = {}
-        for line in tsv_in:
+        # Process filtered lines from grep
+        for line in grep_proc.stdout:
             fields = line.rstrip('\n').split('\t')
             accession = fields[accession_idx].strip()
             isolate = sanitize_name(fields[isolate_idx].strip())
@@ -497,10 +510,11 @@ def main():
     empty_tree = make_empty_tree()
     preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
     opt_unfiltered_tree = run_matoptimize(preopt_tree, msa_vcf)
-    opt_tree, tree_tip_count = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length)
+    opt_tree, sample_names, tree_tip_count = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length)
     nextclade_assignments, nextclade_clade_columns = run_nextclade(nextclade_path, nextclade_clade_columns,
                                                                    genbank_fasta, extra_fasta, refseq_fasta)
-    metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report, nextclade_assignments, nextclade_clade_columns, acc_to_strain)
+    metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report, nextclade_assignments, nextclade_clade_columns, acc_to_strain,
+                                         sample_names)
     write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count)
     usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff)
 
