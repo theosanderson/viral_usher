@@ -480,6 +480,16 @@ def rename_seqs(pb_in, data_report_tsv, nextclade_assignments, nextclade_clade_c
     return metadata_out, pb_out
 
 
+def dump_newick(pb_in):
+    """Dump the phylogenetic tree in Newick format."""
+    newick_out = "viz.nwk"
+    print(f"Writing tree in Newick format to {newick_out}.gz")
+    command = ['matUtils', 'extract', '-i', pb_in, '--write-tree', newick_out]
+    run_command(command, stdout_filename='/dev/null', stderr_filename='/dev/null')
+    command = ['gzip', newick_out]
+    run_command(command, stdout_filename='/dev/null', stderr_filename='/dev/null')
+
+
 def get_header(tsv_in):
     with gzip.open(tsv_in, 'rt') as tsv:
         header = tsv.readline().split('\t')
@@ -557,6 +567,7 @@ def main():
                                                                    genbank_fasta, extra_fasta, refseq_fasta)
     metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report, nextclade_assignments, nextclade_clade_columns, acc_to_strain,
                                          sample_names)
+    dump_newick(viz_tree)
     write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count)
     usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff)
 
