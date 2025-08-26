@@ -54,6 +54,16 @@ def run_command_get_stdout(command):
         sys.exit(1)
 
 
+def start_timing(message):
+    print(message)
+    return time.perf_counter()
+
+
+def finish_timing(start_time):
+    elapsed_time = time.perf_counter() - start_time
+    print(f"... done in {elapsed_time:.1f}s")
+
+
 def normalize_segment(segment):
     # Many viruses have segments S (small), M (medium), and L (large).  The vast majority of records use S, M or L
     # but there are a few oddballs that spell it out or use middle instead of medium.  Change those to S/M/L.
@@ -70,6 +80,7 @@ def normalize_segment(segment):
 
 def unpack_refseq_zip(refseq_zip, refseq_acc):
     """Extract and rename the fasta and gbff files from the RefSeq zip."""
+    start_time = start_timing(f"Unpacking {refseq_zip}...")
     with zipfile.ZipFile(refseq_zip, 'r') as zip_ref:
         fasta_path = 'refseq.fasta'
         gbff_path = 'refseq.gbff'
@@ -104,8 +115,7 @@ def unpack_refseq_zip(refseq_zip, refseq_acc):
                         print(f"Found segment {segment} for {refseq_acc} in {gbff_path}")
                         break
                 break
-    if not segment:
-        print(f"No segment found for {refseq_acc} in {gbff_path}")
+    finish_timing(start_time)
     return fasta_path, gbff_path, length, segment
 
 
@@ -116,7 +126,7 @@ def passes_seq_filter(record, min_length, max_N_proportion):
 
 def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, passed_accessions, fasta_out_path):
     # Filter fasta file and chop descriptions to get accession as name in nextclade
-    start_time = time.perf_counter()
+    start_time = start_timing(f"Filtering GenBank sequences by length >= {min_length} and proportion of Ns <= {max_N_proportion}...")
     record_count = 0
     passed_count = 0
     for record in SeqIO.parse(fasta_in, 'fasta'):
@@ -131,14 +141,14 @@ def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, 
         # Chop sequence name after first space to limit to accession only
         record.description = record.id
         SeqIO.write(record, fasta_out, 'fasta')
-    elapsed_time = time.perf_counter() - start_time
-    print(f"Processed {record_count} sequences from GenBank and wrote fasta file with {passed_count} sequences passing filters: {fasta_out_path} in {elapsed_time:.1f}s")
+    finish_timing(start_time)
+    print(f"Processed {record_count} sequences from GenBank and wrote {passed_count} sequences passing filters to {fasta_out_path}.")
     return record_count, passed_count
 
 
 def extract_metadata(jsonl_in, refseq_segment, tsv_out, tsv_out_path):
     # Extract only the bits we want from data_report.jsonl to data_report.tsv
-    start_time = time.perf_counter()
+    start_time = start_timing(f"Extracting metadata for GenBank sequences...")
     passed_accessions = set()
     # Write header
     header = ["accession", "isolate", "country", "location", "date", "length", "biosample", "submitter", "authors"]
@@ -171,8 +181,7 @@ def extract_metadata(jsonl_in, refseq_segment, tsv_out, tsv_out_path):
             tsv_out.write(f"\t{segment}")
         tsv_out.write("\n")
         passed_accessions.add(accession)
-    elapsed_time = time.perf_counter() - start_time
-    print(f"Wrote metadata TSV file: {tsv_out_path} in {elapsed_time:.1f}s")
+    finish_timing(start_time)
     return passed_accessions
 
 
@@ -224,7 +233,7 @@ def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_le
     """Run nextclade to align the filtered sequences to the reference, and pipe its output to faToVcf and gzip."""
     msa_vcf_gz = 'msa.vcf.gz'
     nextclade_err_txt = 'nextclade.align.err.log'
-    start_time = time.perf_counter()
+    start_time = start_timing(f"Aligning sequences with nextclade and converting to VCF, writing to {msa_vcf_gz}...")
     # Set up the pipeline: | nextclade | faToVcf | gzip > msa.vcf.gz
     nextclade_cmd = [
         'nextclade', 'run', '--input-ref', refseq_fasta, '--include-reference', 'true', '--output-fasta', '/dev/stdout'
@@ -268,8 +277,8 @@ def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_le
         except subprocess.CalledProcessError as e:
             print(f"nextclade | faToVcf failed: {e.stderr}", file=sys.stderr)
             raise
-    elapsed_time = time.perf_counter() - start_time
-    print(f"Nextclade alignment and VCF conversion completed successfully. Wrote VCF file: {msa_vcf_gz} in {elapsed_time:.1f}s")
+    finish_timing(start_time)
+    start_time = start_timing(f"Compressing {nextclade_err_txt}...")
     # gzip nextclade.align.err.log (note: using gzip.open above did not work, it was written uncompressed.)
     run_command(['gzip', '-f', nextclade_err_txt])
     # Count the number of samples in the #CHROM header line of msa.vcf.gz
@@ -279,6 +288,7 @@ def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_le
                 header = line.strip().split('\t')
                 aligned_count = len(header) - 9  # Subtract fixed columns
                 break
+    finish_timing(start_time)
     return msa_vcf_gz, aligned_count
 
 
@@ -287,37 +297,35 @@ def make_empty_tree():
     empty_tree_path = 'empty_tree.nwk'
     with open(empty_tree_path, 'w') as f:
         f.write("()\n")
-    print(f"Created empty tree file: {empty_tree_path}")
     return empty_tree_path
 
 
 def run_usher_sampled(tree, vcf):
     """Build the tree.  Use docker --platform linux/amd64 so this will work even on Mac with ARM CPU. """
     pb_out = 'usher_sampled.pb.gz'
-    start_time = time.perf_counter()
+    start_time = start_timing(f"Running usher-sampled on {vcf}...")
     command = ['usher-sampled', '-A', '-e', '5', '-t', tree, '-v', vcf, '-o', pb_out,
                '--optimization_radius', '0', '--batch_size_per_process', '100']
     run_command(command, stdout_filename='usher-sampled.out.log', stderr_filename='usher-sampled.err.log')
-    elapsed_time = time.perf_counter() - start_time
-    print(f"Ran usher-sampled in {elapsed_time:.1f}s")
+    finish_timing(start_time)
     return pb_out
 
 
 def run_matoptimize(pb_file, vcf_file):
     """Run matOptimize to clean up after usher-sampled"""
     pb_out = 'optimized.unfiltered.pb.gz'
-    start_time = time.perf_counter()
+    start_time = start_timing(f"Running matOptimize on {pb_file}...")
     # Try with VCF, which is less tested but should give better results because it includes
     # info about which bases are ambiguous or N.  That info is lost when usher imputes values.
     command = ['matOptimize', '-m', '0.00000001', '-M', '1',
                '-i', pb_file, '-v', vcf_file, '-o', pb_out]
     if not run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log', fail_ok=True):
-        print("matOptimize with VCF failed, trying again without VCF.")
+        finish_timing(start_time)
+        start_time = start_timing("matOptimize with VCF failed, trying again without VCF...")
         command = ['matOptimize', '-m', '0.00000001', '-M', '1',
                    '-i', pb_file, '-o', pb_out]
         run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log')
-    elapsed_time = time.perf_counter() - start_time
-    print(f"Ran matOptimize in {elapsed_time:.1f}s")
+    finish_timing(start_time)
     return pb_out
 
 
@@ -325,7 +333,7 @@ def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
     """Run matUtils extract to filter sequences/branches and collapse tree post-matOptimize"""
     pb_out = 'optimized.pb.gz'
     sample_names_out = 'tree_samples.txt'
-    start_time = time.perf_counter()
+    start_time = start_timing(f"Running matUtils to filter (--max-parsimony {max_parsimony} --max-branch-length {max_branch_length})...")
     command = ['matUtils', 'extract', '-i', opt_unfiltered_tree,
                '--max-parsimony', str(max_parsimony),
                '--max-branch-length', str(max_branch_length),
@@ -333,15 +341,16 @@ def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
                '--used-samples', sample_names_out,
                '-o', pb_out]
     run_command(command, stdout_filename='matUtils.filter.out.log', stderr_filename='matUtils.filter.err.log')
-    elapsed_time = time.perf_counter() - start_time
-    print(f"Ran matUtils to filter (--max-parsimony {max_parsimony} --max-branch-length {max_branch_length}) in {elapsed_time:.1f}s")
+    finish_timing(start_time)
     # Run matUtils summary to get the final number of samples in the tree
+    start_time = start_timing("Counting samples in the final tree...")
     command = ['matUtils', 'summary', '-i', pb_out]
     summary_output = run_command_get_stdout(command)
     for line in summary_output.split('\n'):
         if line.startswith('Total Samples in Tree:'):
             tree_tip_count = int(line.split(':')[1].strip())
             break
+    finish_timing(start_time)
     return pb_out, sample_names_out, tree_tip_count
 
 
@@ -357,7 +366,7 @@ def run_nextclade(nextclade_path, nextclade_clade_columns, genbank_fasta, extra_
         output_columns = 'seqName,clade,dynamic'
     else:
         output_columns = 'seqName,clade'
-    start_time = time.perf_counter()
+    start_time = start_timing(f"Running nextclade to assign clades (dataset: {nextclade_path})...")
     command = ['nextclade', 'run',
                '--dataset-name', nextclade_path,
                '--output-columns-selection', output_columns,
@@ -366,9 +375,9 @@ def run_nextclade(nextclade_path, nextclade_clade_columns, genbank_fasta, extra_
     if extra_fasta:
         command.append(extra_fasta)
     run_command(command, stdout_filename='nextclade.clade.out.log', stderr_filename='nextclade.clade.err.log')
-    elapsed_time = time.perf_counter() - start_time
-    print(f"Ran nextclade -d {nextclade_path} in {elapsed_time:.1f}s")
+    finish_timing(start_time)
     # Read the TSV file and return a dict mapping sequence names to clades
+    start_time = start_timing(f"Reading nextclade assignments from {nextclade_tsv} to add to metadata...")
     nextclade_assignments = {}
     with open(nextclade_tsv, 'r') as tsv_in:
         header_cols = tsv_in.readline().rstrip('\n').split('\t')
@@ -379,6 +388,7 @@ def run_nextclade(nextclade_path, nextclade_clade_columns, genbank_fasta, extra_
             seq_name = fields[0]
             clades = fields[1:]
             nextclade_assignments[seq_name] = clades
+    finish_timing(start_time)
     return nextclade_assignments, nextclade_clade_columns
 
 
@@ -414,7 +424,7 @@ def rename_seqs(pb_in, data_report_tsv, nextclade_assignments, nextclade_clade_c
     rename_out = "rename.tsv"
     metadata_out = "metadata.tsv.gz"
     pb_out = "viz.pb.gz"
-    start_time = time.perf_counter()
+    start_time = start_timing(f"Renaming sequences using metadata, writing to {metadata_out}...")
     # Use a subprocess to pipe: gzip -dc {data_report_tsv} | grep -Fwf {sample_names}
     grep_cmd = ['grep', '-Fwf', sample_names]
     gzip_cmd = ['gzip', '-dc', data_report_tsv]
@@ -473,21 +483,23 @@ def rename_seqs(pb_in, data_report_tsv, nextclade_assignments, nextclade_clade_c
                 clades = nextclade_assignments.get(accession, ['' * len(nextclade_col_list)])
                 metadata += '\t' + '\t'.join(clades)
             m_out.write(metadata + '\n')
+    finish_timing(start_time)
+    start_time = start_timing(f"Renaming sequences in {pb_in} to make {pb_out}...")
     command = ['matUtils', 'mask', '-i', pb_in, '--rename-samples', rename_out, '-o', pb_out]
     run_command(command, stdout_filename='matUtils.rename.out.log', stderr_filename='matUtils.rename.err.log')
-    elapsed_time = time.perf_counter() - start_time
-    print(f"Ran matUtils to rename sequences for display in {elapsed_time:.1f}s")
+    finish_timing(start_time)
     return metadata_out, pb_out
 
 
 def dump_newick(pb_in):
     """Dump the phylogenetic tree in Newick format."""
     newick_out = "viz.nwk"
-    print(f"Writing tree in Newick format to {newick_out}.gz")
+    start_time = start_timing(f"Writing tree in Newick format to {newick_out}.gz...")
     command = ['matUtils', 'extract', '-i', pb_in, '--write-tree', newick_out]
     run_command(command, stdout_filename='/dev/null', stderr_filename='/dev/null')
-    command = ['gzip', newick_out]
+    command = ['gzip', '-f', newick_out]
     run_command(command, stdout_filename='/dev/null', stderr_filename='/dev/null')
+    finish_timing(start_time)
 
 
 def get_header(tsv_in):
@@ -500,23 +512,24 @@ def get_header(tsv_in):
 
 def usher_to_taxonium(pb_in, metadata_in, refseq_gbff):
     jsonl_out = "tree.jsonl.gz"
-    start_time = time.perf_counter()
+    start_time = start_timing(f"Running usher_to_taxonium to make {jsonl_out}...")
     columns = ','.join(get_header(metadata_in))
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
                '--columns', columns, '--genbank', refseq_gbff, '--output', jsonl_out]
     if not run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log', fail_ok=True):
-        print("usher_to_taxonium failed with --genbank, trying again without --genbank.")
+        finish_timing(start_time)
+        start_time = start_timing("usher_to_taxonium failed with --genbank, trying again without --genbank...")
         command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
                    '--columns', columns, '--output', jsonl_out]
         run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log')
-    elapsed_time = time.perf_counter() - start_time
-    print(f"Ran usher_to_taxonium in {elapsed_time:.1f}s")
+    finish_timing(start_time)
     return jsonl_out
 
 
 def write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count):
     output_stats = [["refseq_acc", "refseq_length", "gb_count", "filtered_count", "aligned_count", "tree_tip_count"],
                     [refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count]]
+    print(f"Writing output stats to output_stats.tsv.")
     with open("output_stats.tsv", "w") as f:
         for row in output_stats:
             f.write("\t".join(map(str, row)) + "\n")
@@ -545,18 +558,20 @@ def main():
 
     # Download the RefSeq genome and all GenBank genomes for the given Taxonomy ID
     ncbi = ncbi_helper.NcbiHelper()
-    print(f"Downloading RefSeq {refseq_acc} (Assembly {assembly_id}) genome to {refseq_zip}...")
+    start_time = start_timing(f"Downloading RefSeq {refseq_acc} (Assembly {assembly_id}) genome to {refseq_zip}...")
     ncbi.download_refseq(assembly_id, refseq_zip)
-    print(f"Downloading all GenBank genomes for taxid {taxid} to {genbank_zip}...")
+    finish_timing(start_time)
+    start_time = start_timing(f"Downloading all GenBank genomes for taxid {taxid} to {genbank_zip}...")
     ncbi.download_genbank(taxid, genbank_zip)
+    finish_timing(start_time)
     # Get strain metadata from NCBI Virus API
-    print(f"Querying NCBI Virus API for extra metadata for taxid {taxid}...")
+    start_time = start_timing(f"Querying NCBI Virus API for extra metadata for taxid {taxid}...")
     acc_to_strain = ncbi.query_ncbi_virus_metadata(taxid)
+    finish_timing(start_time)
 
     refseq_fasta, refseq_gbff, refseq_length, refseq_segment = unpack_refseq_zip(refseq_zip, refseq_acc)
 
     min_length = int(refseq_length * min_length_proportion)
-    print(f"Using min_length_proportion={min_length_proportion} ({min_length} bases) and max_N_proportion={max_N_proportion}")
     genbank_fasta, data_report, gb_count, filtered_count = unpack_genbank_zip(genbank_zip, min_length, max_N_proportion, refseq_segment)
     msa_vcf, aligned_count = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion)
     empty_tree = make_empty_tree()
