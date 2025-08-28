@@ -114,12 +114,15 @@ def localize_config(args_config, config_contents):
     return config_rel
 
 
-def run_in_docker(workdir, config_rel, args_docker_image):
+def run_in_docker(workdir, config_rel, args_docker_image, args_update):
     """Start up a docker container that runs the pipeline."""
     docker_client = docker.from_env()
     user_id = os.getuid()
     group_id = os.getgid()
     docker_image = get_docker_image(docker_client, args_docker_image)
+    command = ["viral_usher_build", "--config", config_rel]
+    if args_update:
+        command.append("--update")
     try:
         container = docker_client.containers.run(
             docker_image,
@@ -128,7 +131,7 @@ def run_in_docker(workdir, config_rel, args_docker_image):
             network_mode='host',
             user=':'.join([str(user_id), str(group_id)]),
             volumes=[':'.join([workdir, docker_workdir])],
-            command=["viral_usher_build", "--config", config_rel],
+            command=command,
             detach=True,  # Run container in background so we can stream logs
             stdout=True,
             stderr=True,
@@ -159,7 +162,7 @@ def handle_build(args):
     config_contents = config.parse_config(args.config)
     config_rel = localize_config(args.config, config_contents)
     workdir = config_contents['workdir']
-    run_in_docker(workdir, config_rel, args.docker_image)
+    run_in_docker(workdir, config_rel, args.docker_image, args.update)
     if os.path.exists(f"{workdir}/tree.jsonl.gz"):
         print(f"Success -- you can view {workdir}/tree.jsonl.gz using https://taxonium.org/ now.")
     else:

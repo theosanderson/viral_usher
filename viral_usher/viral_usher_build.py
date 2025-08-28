@@ -1,8 +1,10 @@
 import argparse
+import csv
+import datetime
 import gzip
 import io
-import json
 import lzma
+import os
 import re
 import shutil
 import subprocess
@@ -12,6 +14,9 @@ import zipfile
 from Bio import SeqIO
 from . import config
 from . import ncbi_helper
+
+update_tree_input = "optimized.pb.gz"
+update_nextclade_input = "nextclade.clade.tsv"
 
 
 def run_command(command, stdout_filename=None, stderr_filename=None, fail_ok=False):
@@ -119,23 +124,39 @@ def unpack_refseq_zip(refseq_zip, refseq_acc):
     return fasta_path, gbff_path, length, segment
 
 
-def passes_seq_filter(record, min_length, max_N_proportion):
-    """Fasta record passes the filter if it is at least min_length bases and has at most max_N_proportion of Ns"""
-    return len(record.seq) >= min_length and record.seq.count('N') / len(record.seq) <= max_N_proportion
+def scan_ncbi_virus_metadata(ncbi_virus_metadata):
+    """Get just a couple attributes that are useful for filtering sequences: length and segment."""
+    acc_to_length_segment = {}
+    with open(ncbi_virus_metadata, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            accession = row.get("accession")
+            length = int(row.get("length", 0))
+            segment = normalize_segment(row.get("segment", ""))
+            acc_to_length_segment[accession] = (length, segment)
+    return acc_to_length_segment
 
 
-def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, passed_accessions, fasta_out_path):
+def passes_seq_filter(record, length, max_N_proportion):
+    """Fasta record passes the filter if it has at most max_N_proportion of Ns"""
+    return record.seq.count('N') / length <= max_N_proportion
+
+
+def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, acc_to_length_segment, refseq_segment, fasta_out_path):
     # Filter fasta file and chop descriptions to get accession as name in nextclade
     start_time = start_timing(f"Filtering GenBank sequences by length >= {min_length} and proportion of Ns <= {max_N_proportion}...")
     record_count = 0
     passed_count = 0
     for record in SeqIO.parse(fasta_in, 'fasta'):
         record_count += 1
-        # Skip if accession is not in passed_accessions
-        if record.id not in passed_accessions:
+        (length, segment) = acc_to_length_segment.get(record.id, (0, None))
+        if length == 0:
+            length = len(record.seq)
+        # Skip if segment is given but is different from refseq_segment or sequence is shorter than min_length
+        if length < min_length or (segment and segment != refseq_segment):
             continue
-        # Filter sequences by length and proportion of ambiguous characters
-        if not passes_seq_filter(record, min_length, max_N_proportion):
+        # Filter by proportion of ambiguous characters
+        if not passes_seq_filter(record, length, max_N_proportion):
             continue
         passed_count += 1
         # Chop sequence name after first space to limit to accession only
@@ -146,67 +167,21 @@ def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, 
     return record_count, passed_count
 
 
-def extract_metadata(jsonl_in, refseq_segment, tsv_out, tsv_out_path):
-    # Extract only the bits we want from data_report.jsonl to data_report.tsv
-    start_time = start_timing(f"Extracting metadata for GenBank sequences...")
-    passed_accessions = set()
-    # Write header
-    header = ["accession", "isolate", "country", "location", "date", "length", "biosample", "submitter", "authors"]
-    if refseq_segment:
-        header.append("segment")
-    tsv_out.write("\t".join(header) + "\n")
-    for line in jsonl_in:
-        item = json.loads(line)
-        # Only keep selected fields; adjust as needed
-        accession = item.get('accession', '')
-        isolate = item.get('isolate', {}).get('name', '')
-        length = item.get('length', '')
-        date = item.get('isolate', {}).get('collectionDate', '')
-        location = item.get('location', {}).get('geographicLocation', '')
-        country = location.split(":")[0]
-        location = ":".join(location.split(":")[1:]).strip()
-        biosample = item.get('biosample', '')
-        submitter = item.get('submitter', {}).get('affiliation', '')
-        submitter_country = item.get('submitter', {}).get('country', '')
-        if submitter and submitter_country:
-            submitter = f"{submitter}, {submitter_country}"
-        authors = ", ".join(item.get('submitter', {}).get('names', []))
-        if refseq_segment:
-            segment = normalize_segment(item.get('segment', ''))
-            # If segment is given and it doesn't match the RefSeq segment, skip this record
-            if segment and segment != refseq_segment:
-                continue
-        tsv_out.write("\t".join([accession, isolate, country, location, date, str(length), biosample, submitter, authors]))
-        if refseq_segment:
-            tsv_out.write(f"\t{segment}")
-        tsv_out.write("\n")
-        passed_accessions.add(accession)
-    finish_timing(start_time)
-    return passed_accessions
-
-
-def unpack_genbank_zip(genbank_zip, min_length, max_N_proportion, refseq_segment):
+def unpack_genbank_zip(genbank_zip, acc_to_length_segment, min_length, max_N_proportion, refseq_segment):
     """Process the fasta and data_report.jsonl files from the GenBank zip,
     filtering the fasta by length and proportion of ambiguous characters and
     keeping only the accession part of sequence names, and extracting basic
     metadata from data_report.jsonl into much more compact TSV.
     Compress fasta with lzma (xz) and TSV with gzip"""
     fasta_out_path = 'genbank.fasta.xz'
-    tsv_out_path = 'data_report.tsv.gz'
     with zipfile.ZipFile(genbank_zip, 'r') as zip_ref:
         namelist = zip_ref.namelist()
-        data_report_paths = [name for name in namelist if name.endswith('data_report.jsonl')]
-        if len(data_report_paths) != 1:
-            raise ValueError(f"Expected exactly one data_report.jsonl file in {genbank_zip}, found: {data_report_paths}")
         genomic_fna_paths = [name for name in namelist if name.endswith('genomic.fna')]
         if len(genomic_fna_paths) != 1:
             raise ValueError(f"Expected exactly one genomic.fna file in {genbank_zip}, found: {genomic_fna_paths}")
-        # Unpack data_report.jsonl first so we can filter by segment if necessary
-        with zip_ref.open(data_report_paths[0]) as jsonl_in, gzip.open(tsv_out_path, 'wt') as tsv_out:
-            passed_accessions = extract_metadata(jsonl_in, refseq_segment, tsv_out, tsv_out_path)
         with io.TextIOWrapper(zip_ref.open(genomic_fna_paths[0], 'r'), encoding='utf-8') as fasta_in, lzma.open(fasta_out_path, 'wt') as fasta_out:
-            genbank_count, passed_count = filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, passed_accessions, fasta_out_path)
-    return fasta_out_path, tsv_out_path, genbank_count, passed_count
+            genbank_count, passed_count = filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, acc_to_length_segment, refseq_segment, fasta_out_path)
+    return fasta_out_path, genbank_count, passed_count
 
 
 def open_maybe_decompress(filename, mode='rt', encoding='utf-8'):
@@ -227,6 +202,14 @@ def record_to_fasta_bytes(record):
     buf = io.StringIO()
     SeqIO.write(record, buf, 'fasta')
     return buf.getvalue().encode('utf-8')
+
+
+def sanitize_name(name):
+    """Replace characters that could cause trouble, such as spaces or Newick special characters,
+    with underscores."""
+    for c in ['[', ']', '(', ')', ':', ';', ',', "'", ' ']:
+        name = name.replace(c, '_')
+    return name
 
 
 def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion):
@@ -252,13 +235,15 @@ def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_le
             if extra_fasta:
                 with open_maybe_decompress(extra_fasta) as ef:
                     for record in SeqIO.parse(ef, 'fasta'):
+                        record.description = sanitize_name(record.description)
+                        record.id = record.description
                         if record.id in extra_ids:
                             print(f"Fasta ID '{record.id}' has already been used in {extra_fasta}, discarding duplicate.", file=sys.stderr)
                         else:
                             extra_ids[record.id] = True
-                            if not passes_seq_filter(record, min_length, max_N_proportion):
+                            length = len(record.seq)
+                            if length < min_length or not passes_seq_filter(record, length, max_N_proportion):
                                 continue
-                            record.description = record.id
                             nextclade_proc.stdin.write(record_to_fasta_bytes(record))
             # genbank_fasta has already been filtered for length & Ns, but discard duplicates
             with open_maybe_decompress(genbank_fasta) as gf:
@@ -282,6 +267,7 @@ def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_le
     # gzip nextclade.align.err.log (note: using gzip.open above did not work, it was written uncompressed.)
     run_command(['gzip', '-f', nextclade_err_txt])
     # Count the number of samples in the #CHROM header line of msa.vcf.gz
+    aligned_count = 0
     with gzip.open(msa_vcf_gz, 'rt') as vcf_in:
         for line in vcf_in:
             if line.startswith('#CHROM'):
@@ -304,34 +290,39 @@ def run_usher_sampled(tree, vcf):
     """Build the tree.  Use docker --platform linux/amd64 so this will work even on Mac with ARM CPU. """
     pb_out = 'usher_sampled.pb.gz'
     start_time = start_timing(f"Running usher-sampled on {vcf}...")
-    command = ['usher-sampled', '-A', '-e', '5', '-t', tree, '-v', vcf, '-o', pb_out,
+    tree_flag = "-t" if tree.endswith('.nwk') else "-i"
+    command = ['usher-sampled', '-A', '-e', '5', tree_flag, tree, '-v', vcf, '-o', pb_out,
                '--optimization_radius', '0', '--batch_size_per_process', '100']
     run_command(command, stdout_filename='usher-sampled.out.log', stderr_filename='usher-sampled.err.log')
     finish_timing(start_time)
     return pb_out
 
 
-def run_matoptimize(pb_file, vcf_file):
+def run_matoptimize(pb_file, vcf_file, update):
     """Run matOptimize to clean up after usher-sampled"""
     pb_out = 'optimized.unfiltered.pb.gz'
     start_time = start_timing(f"Running matOptimize on {pb_file}...")
-    # Try with VCF, which is less tested but should give better results because it includes
+    command_no_vcf = ['matOptimize', '-m', '0.00000001', '-M', '1', '-i', pb_file, '-o', pb_out]
+    # Unless we're doing an update, in which case the VCF covers only the new sequences,
+    # first try with VCF, which is less tested but should give better results because it includes
     # info about which bases are ambiguous or N.  That info is lost when usher imputes values.
-    command = ['matOptimize', '-m', '0.00000001', '-M', '1',
-               '-i', pb_file, '-v', vcf_file, '-o', pb_out]
-    if not run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log', fail_ok=True):
-        finish_timing(start_time)
-        start_time = start_timing("matOptimize with VCF failed, trying again without VCF...")
-        command = ['matOptimize', '-m', '0.00000001', '-M', '1',
-                   '-i', pb_file, '-o', pb_out]
-        run_command(command, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log')
+    if update:
+        run_command(command_no_vcf, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log')
+    else:
+        command_vcf = command_no_vcf.copy()
+        command_vcf.append("-v")
+        command_vcf.append(vcf_file)
+        if not run_command(command_vcf, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log', fail_ok=True):
+            finish_timing(start_time)
+            start_time = start_timing("matOptimize with VCF failed, trying again without VCF...")
+            run_command(command_no_vcf, stdout_filename='matOptimize.out.log', stderr_filename='matOptimize.err.log')
     finish_timing(start_time)
     return pb_out
 
 
 def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
     """Run matUtils extract to filter sequences/branches and collapse tree post-matOptimize"""
-    pb_out = 'optimized.pb.gz'
+    pb_out = update_tree_input
     sample_names_out = 'tree_samples.txt'
     start_time = start_timing(f"Running matUtils to filter (--max-parsimony {max_parsimony} --max-branch-length {max_branch_length})...")
     command = ['matUtils', 'extract', '-i', opt_unfiltered_tree,
@@ -354,11 +345,37 @@ def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
     return pb_out, sample_names_out, tree_tip_count
 
 
-def run_nextclade(nextclade_path, nextclade_clade_columns, genbank_fasta, extra_fasta, refseq_fasta):
+def get_existing_nextclade_assignments(update, starting_tree_accessions, nextclade_path):
+    """Get existing Nextclade assignments, and the number of columns to expect, from the old TSV file about to be replaced."""
+    if not update or not nextclade_path:
+        return {}, None
+    existing_assignments = {}
+    nextclade_tsv = update_nextclade_input if os.path.exists(update_nextclade_input) else update_nextclade_input + ".gz"
+    existing_column_count = None
+    if os.path.exists(nextclade_tsv):
+        with open_maybe_decompress(nextclade_tsv) as tsv_in:
+            header_cols = tsv_in.readline().rstrip('\n').split('\t')
+            # 'dynamic' might have added clade and/or phenotype, motif etc. columns; keep all of them
+            col_count = len(header_cols) - 1
+            if existing_column_count is None:
+                existing_column_count = col_count
+            elif existing_column_count != col_count:
+                raise ValueError(f"Inconsistent Nextclade column count in {nextclade_tsv}: {existing_column_count} vs {col_count}")
+            for line in tsv_in:
+                fields = line.rstrip('\n').split('\t')
+                seq_name = fields[0]
+                clades = fields[1:]
+                existing_assignments[seq_name] = clades
+    else:
+        print(f"Nextclade TSV file {nextclade_tsv} not found. Only new items will have clade assignments.", file=sys.stderr)
+    return existing_assignments, existing_column_count
+
+
+def run_nextclade(nextclade_path, nextclade_clade_columns, existing_nextclade_assignments, existing_column_count, genbank_fasta, extra_fasta, refseq_fasta):
     """Run nextclade to assign sequences to clades.  Return dict mapping accession to clade."""
     if not nextclade_path:
         return {}, ""
-    nextclade_tsv = 'nextclade.clade.tsv'
+    nextclade_tsv = update_nextclade_input
     # Nextclade --output-columns-selection does not accept individual customClades names; instead use 'dynamic'
     # to get all of them.  See https://github.com/nextstrain/nextclade/issues/1667 .
     nextclade_col_list = nextclade_clade_columns.split(',')
@@ -378,26 +395,34 @@ def run_nextclade(nextclade_path, nextclade_clade_columns, genbank_fasta, extra_
     finish_timing(start_time)
     # Read the TSV file and return a dict mapping sequence names to clades
     start_time = start_timing(f"Reading nextclade assignments from {nextclade_tsv} to add to metadata...")
-    nextclade_assignments = {}
+    new_assignments = {}
     with open(nextclade_tsv, 'r') as tsv_in:
         header_cols = tsv_in.readline().rstrip('\n').split('\t')
         # 'dynamic' might have added clade and/or phenotype, motif etc. columns; keep all of them
         nextclade_clade_columns = ','.join(header_cols[1:])
+        nextclade_column_count = len(header_cols) - 1
+        if existing_column_count is not None and nextclade_column_count != existing_column_count:
+            print(f"Existing nextclade annotations had {existing_column_count} columns but new annotations have {nextclade_column_count} columns ({header_cols[1:]})." +
+                  f"\nRemove {update_nextclade_input} and run again, to rebuild with the latest nextclade dataset '{nextclade_path}'", file=sys.stderr)
+            sys.exit(1)
         for line in tsv_in:
             fields = line.rstrip('\n').split('\t')
             seq_name = fields[0]
             clades = fields[1:]
-            nextclade_assignments[seq_name] = clades
+            new_assignments[seq_name] = clades
+    if existing_column_count is not None:
+        nextclade_assignments = existing_nextclade_assignments
+        nextclade_assignments.update(new_assignments)
+    else:
+        nextclade_assignments = new_assignments
     finish_timing(start_time)
+    if existing_column_count is not None:
+        # Append the existing assignments to the new little update nextclade.clade.tsv so they're not lost.
+        with open(nextclade_tsv, 'a') as tsv_out:
+            for acc, clade_columns in existing_nextclade_assignments.items():
+                if acc not in new_assignments:
+                    print(acc + "\t" + "\t".join(clade_columns), file=tsv_out)
     return nextclade_assignments, nextclade_clade_columns
-
-
-def sanitize_name(name):
-    """Replace characters that could cause trouble, such as spaces or Newick special characters,
-    with underscores."""
-    for c in ['[', ']', '(', ')', ':', ';', ',', "'", ' ']:
-        name = name.replace(c, '_')
-    return name
 
 
 def fudge_isolate(isolate, accession, date, country, year):
@@ -418,77 +443,94 @@ def fudge_isolate(isolate, accession, date, country, year):
     return full
 
 
-def rename_seqs(pb_in, data_report_tsv, nextclade_assignments, nextclade_clade_columns, acc_to_strain, sample_names):
-    """Rename sequence names in tree to include country, isolate name and date when available.
+def make_display_name(isolate, strain, date, accession, country):
+    """Make a display name with whatever info is available in isolate or strain, the country and date in addition to accession."""
+    if not isolate:
+        isolate = strain
+    elif strain and len(isolate) < len(strain):
+        # Sometimes people use nice strain like "MVi/Marseille.FRA/21.19/20[D8]" but goofy isolate
+        # like "9061923678/9051834309" for MZ031240.1.  If strain is longer, use it.
+        isolate = strain
+    groups = re.match('^([0-9]{4})(-[0-9]{2})?(-[0-9]{2})?$', date)
+    year = None
+    if groups:
+        year = groups[1]
+    if not date:
+        date = '?'
+    full = fudge_isolate(isolate, accession, date, country, year)
+    if full:
+        name = '|'.join([full, accession, date])
+    else:
+        name = '|'.join([accession, date])
+    return name
+
+
+def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clade_columns, refseq_segment, sample_names):
+    """Make a file for renaming sequence names in tree to include country, isolate name and date when available.
     Prepare metadata for taxonium."""
     rename_out = "rename.tsv"
     metadata_out = "metadata.tsv.gz"
-    pb_out = "viz.pb.gz"
-    start_time = start_timing(f"Renaming sequences using metadata, writing to {metadata_out}...")
-    # Use a subprocess to pipe: gzip -dc {data_report_tsv} | grep -Fwf {sample_names}
-    grep_cmd = ['grep', '-Fwf', sample_names]
-    gzip_cmd = ['gzip', '-dc', data_report_tsv]
-    with open(rename_out, 'w') as r_out, gzip.open(metadata_out, 'wt') as m_out:
-        # Start gzip process
-        gzip_proc = subprocess.Popen(gzip_cmd, stdout=subprocess.PIPE)
-        # Start grep process, reading from gzip's stdout
-        grep_proc = subprocess.Popen(grep_cmd, stdin=gzip_proc.stdout, stdout=subprocess.PIPE, text=True)
-        gzip_proc.stdout.close()  # Allow gzip to receive SIGPIPE if grep exits
-        # Read header from data_report_tsv (not filtered by grep)
-        with gzip.open(data_report_tsv, 'rt') as tsv_in:
-            header = tsv_in.readline().rstrip('\n').split('\t')
+    start_time = start_timing(f"Finalizing sequence names for display and metadata, writing to {metadata_out}...")
+    remove_segment = not refseq_segment
+    # Use a subprocess to get input from grep -Fwf {sample_names} {ncbi_virus_metadata}
+    grep_cmd = ['grep', '-Fwf', sample_names, ncbi_virus_metadata]
+    with subprocess.Popen(grep_cmd, stdout=subprocess.PIPE, text=True) as grep_proc, \
+            open(rename_out, 'w') as r_out, gzip.open(metadata_out, 'wt') as m_out:
+        # Read header from ncbi_virus_metadata (not filtered by grep)
+        with open(ncbi_virus_metadata, 'rt') as csv_in:
+            header = csv_in.readline().rstrip('\n').split(',')
         accession_idx = header.index('accession')
         isolate_idx = header.index('isolate')
+        strain_idx = header.index('strain')
         date_idx = header.index('date')
-        country_idx = header.index('country')
+        country_loc_idx = header.index('country_location')
+        # In metadata header, make separate columns for country and location:
+        header_mod = header[:country_loc_idx] + ['country', 'location'] + header[country_loc_idx+1:]
+        segment_idx = header_mod.index('segment')
+        if remove_segment:
+            header_mod.pop(segment_idx)
         # No header for rename_out; write header for metadata_out
-        metadata_header = 'strain\t' + '\t'.join(header)
+        metadata_header = 'strain\t' + '\t'.join(header_mod)
         if nextclade_clade_columns:
             nextclade_col_list = nextclade_clade_columns.split(',')
             nextclade_col_list = [col if col.startswith('nextclade_') or col.startswith('Nextclade)_') else 'nextclade_' + col for col in nextclade_col_list]
             metadata_header += '\t' + '\t'.join(nextclade_col_list)
         m_out.write(metadata_header + '\n')
 
-        # Create a mapping from accession to metadata
-        acc_to_name = {}
         # Process filtered lines from grep
-        for line in grep_proc.stdout:
-            fields = line.rstrip('\n').split('\t')
-            accession = fields[accession_idx].strip()
-            isolate = sanitize_name(fields[isolate_idx].strip())
-            strain = sanitize_name(acc_to_strain.get(accession, ''))
-            if not isolate:
-                isolate = strain
-            elif strain and len(isolate) < len(strain):
-                # Sometimes people use nice strain like "MVi/Marseille.FRA/21.19/20[D8]" but goofy isolate
-                # like "9061923678/9051834309" for MZ031240.1.  If strain is longer, use it.
-                isolate = strain
-            date = fields[date_idx].strip()
-            country = sanitize_name(fields[country_idx].strip())
-            groups = re.match('^([0-9]{4})(-[0-9]{2})?(-[0-9]{2})?$', date)
-            year = None
-            if groups:
-                year = groups[1]
-            if not date:
-                date = '?'
-            full = fudge_isolate(isolate, accession, date, country, year)
-            if full:
-                name = '|'.join([full, accession, date])
-            else:
-                name = '|'.join([accession, date])
-            acc_to_name[accession] = name
-            r_out.write("\t".join([accession, name]) + '\n')
-            metadata = name + '\t' + '\t'.join(fields)
+        reader = csv.reader(grep_proc.stdout, delimiter=',')
+        for row in reader:
+            accession = row[accession_idx].strip()
+            isolate = sanitize_name(row[isolate_idx].strip())
+            strain = sanitize_name(row[strain_idx].strip())
+            date = row[date_idx].strip()
+            country_loc = row[country_loc_idx].strip()
+            # Make separate columns for country and location
+            country, location = country_loc.split(':', 1) if ':' in country_loc else (country_loc, '')
+            country = sanitize_name(country.strip())
+            location = location.strip()
+            row_mod = row[:country_loc_idx] + [country, location] + row[country_loc_idx+1:]
+            if remove_segment:
+                row_mod.pop(segment_idx)
+            name = make_display_name(isolate, strain, date, accession, country)
+            metadata = name + '\t' + '\t'.join(row_mod)
             if nextclade_clade_columns:
                 clades = nextclade_assignments.get(accession, ['' * len(nextclade_col_list)])
                 metadata += '\t' + '\t'.join(clades)
+            # Write output to both renaming file and metadata file
+            r_out.write("\t".join([accession, name]) + '\n')
             m_out.write(metadata + '\n')
     finish_timing(start_time)
+    return metadata_out, rename_out
+
+
+def rename_seqs(pb_in, rename_tsv):
+    pb_out = "viz.pb.gz"
     start_time = start_timing(f"Renaming sequences in {pb_in} to make {pb_out}...")
-    command = ['matUtils', 'mask', '-i', pb_in, '--rename-samples', rename_out, '-o', pb_out]
+    command = ['matUtils', 'mask', '-i', pb_in, '--rename-samples', rename_tsv, '-o', pb_out]
     run_command(command, stdout_filename='matUtils.rename.out.log', stderr_filename='matUtils.rename.err.log')
     finish_timing(start_time)
-    return metadata_out, pb_out
+    return pb_out
 
 
 def dump_newick(pb_in):
@@ -529,15 +571,79 @@ def usher_to_taxonium(pb_in, metadata_in, refseq_gbff):
 def write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count):
     output_stats = [["refseq_acc", "refseq_length", "gb_count", "filtered_count", "aligned_count", "tree_tip_count"],
                     [refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count]]
-    print(f"Writing output stats to output_stats.tsv.")
+    print("Writing output stats to output_stats.tsv.")
     with open("output_stats.tsv", "w") as f:
         for row in output_stats:
             f.write("\t".join(map(str, row)) + "\n")
 
 
+def get_tree_names(pb_in):
+    """Return a set containing the names of the tips in pb_in."""
+    tree_names = set()
+    start_time = start_timing(f"Extracting tree names from {pb_in}...")
+    command = ["matUtils", "extract", "-i", pb_in, "--used-samples", "tree_samples.txt"]
+    run_command(command, stdout_filename="/dev/null", stderr_filename="/dev/null")
+    with open("tree_samples.txt", "r") as f:
+        for line in f:
+            tree_names.add(line.strip())
+    finish_timing(start_time)
+    return tree_names
+
+
+def find_new_accessions(tree_names, acc_to_length_segment, min_length, refseq_segment):
+    """Return a list of GenBank accessions in acc_to_length_segment that are not in the current tree and probably wouldn't be filtered later."""
+    all_accessions = set(acc_to_length_segment.keys())
+    # Exclude accessions whose metadata has a segment that is different from RefSeq
+    exclude_accessions = {acc for acc, (length, seg) in acc_to_length_segment.items() if length < min_length or seg and seg != refseq_segment}
+    new_accessions = all_accessions - tree_names - exclude_accessions
+    return list(new_accessions)
+
+
+def get_new_extra_fasta(tree_names, extra_fasta):
+    """Get a new extra_fasta file containing only sequences not already in the tree."""
+    if not extra_fasta:
+        return ""
+    now = datetime.datetime.now()
+    new_extra_fasta = "new_extra." + now.strftime("%Y-%m-%d_%H-%M-%S") + ".fasta"
+    start_time = start_timing(f"Filtering {extra_fasta} to get new sequences not already in tree, writing to {new_extra_fasta}...")
+    new_count = 0
+    with open_maybe_decompress(extra_fasta) as ef, open(new_extra_fasta, 'w') as nef:
+        for record in SeqIO.parse(ef, 'fasta'):
+            record.description = sanitize_name(record.description)
+            record.id = record.description
+            if record.id not in tree_names:
+                SeqIO.write(record, nef, 'fasta')
+                new_count += 1
+    finish_timing(start_time)
+    if new_count == 0:
+        print(f"No new sequences found in {extra_fasta}, skipping it.")
+        return ""
+    else:
+        print(f"Wrote {new_count} new sequences to {new_extra_fasta}.")
+        return new_extra_fasta
+
+
+def run_nextclade_on_existing(ncbi, starting_tree_accessions, nextclade_path, nextclade_clade_columns,
+                              extra_fasta, refseq_fasta):
+    """Download GenBank sequences that are already in the tree.  Run nextclade on those plus extra_fasta."""
+    old_genbank_zip = "genbank_old.zip"
+    start_time = start_timing("Downloading and unpacking GenBank genomes that were already in the tree, for nextclade...")
+    ncbi.download_genbank_accessions(list(starting_tree_accessions), old_genbank_zip)
+    old_genbank_fasta, _, _ = unpack_genbank_zip(old_genbank_zip, {}, 0, 1.0, "")
+    finish_timing(start_time)
+    print("Running nextclade on genomes that were already in the tree.")
+    run_nextclade(nextclade_path, nextclade_clade_columns, {}, None, old_genbank_fasta, extra_fasta, refseq_fasta)
+    os.remove(old_genbank_zip)
+    if not os.path.exists(update_nextclade_input):
+        print(f"Expected {update_nextclade_input} to be created but it's not found.", sys.stderr)
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(prog="viral_usher_build")
     parser.add_argument("--config", type=str, required=True, help="Path to config file input")
+    parser.add_argument("--update", action="store_true",
+                        help="Add only new sequences to existing tree instead of building tree from scratch")
 
     args = parser.parse_args()
 
@@ -556,32 +662,66 @@ def main():
     refseq_zip = f"{refseq_acc}.zip"
     genbank_zip = f"genbank_{taxid}.zip"
 
-    # Download the RefSeq genome and all GenBank genomes for the given Taxonomy ID
+    # Download the RefSeq genome and annotations
     ncbi = ncbi_helper.NcbiHelper()
     start_time = start_timing(f"Downloading RefSeq {refseq_acc} (Assembly {assembly_id}) genome to {refseq_zip}...")
     ncbi.download_refseq(assembly_id, refseq_zip)
     finish_timing(start_time)
-    start_time = start_timing(f"Downloading all GenBank genomes for taxid {taxid} to {genbank_zip}...")
-    ncbi.download_genbank(taxid, genbank_zip)
-    finish_timing(start_time)
-    # Get strain metadata from NCBI Virus API
-    start_time = start_timing(f"Querying NCBI Virus API for extra metadata for taxid {taxid}...")
-    acc_to_strain = ncbi.query_ncbi_virus_metadata(taxid)
-    finish_timing(start_time)
-
     refseq_fasta, refseq_gbff, refseq_length, refseq_segment = unpack_refseq_zip(refseq_zip, refseq_acc)
-
     min_length = int(refseq_length * min_length_proportion)
-    genbank_fasta, data_report, gb_count, filtered_count = unpack_genbank_zip(genbank_zip, min_length, max_N_proportion, refseq_segment)
+
+    starting_tree_accessions = []
+    if (args.update):
+        # Make sure we have required inputs
+        if not os.path.exists(update_tree_input):
+            print(f"No existing {update_tree_input} found, cannot do update.  Run without --update to build tree from scratch.", file=sys.stderr)
+            sys.exit(1)
+        starting_tree_accessions = get_tree_names(update_tree_input)
+        if nextclade_path and not os.path.exists(update_nextclade_input) and not os.path.exists(update_nextclade_input + ".gz"):
+            print(f"No existing {update_nextclade_input} found; recreating it.")
+            run_nextclade_on_existing(ncbi, starting_tree_accessions, nextclade_path, nextclade_clade_columns,
+                                      extra_fasta, refseq_fasta)
+
+    # Get metadata from NCBI Virus API
+    start_time = start_timing(f"Querying NCBI Virus API for metadata for all GenBank sequences for taxid {taxid}...")
+    ncbi_virus_metadata = "ncbi_virus_metadata.csv"
+    ncbi.query_ncbi_virus_metadata(taxid, ncbi_virus_metadata)
+    acc_to_length_segment = scan_ncbi_virus_metadata(ncbi_virus_metadata)
+    finish_timing(start_time)
+
+    # Download GenBank genomes for the given Taxonomy ID: only the new ones if --update, otherwise all of them
+    if (args.update):
+        new_accessions = find_new_accessions(starting_tree_accessions, acc_to_length_segment, min_length, refseq_segment)
+        start_time = start_timing(f"Downloading {len(new_accessions)} new GenBank genomes for taxid {taxid} to {genbank_zip}...")
+        ncbi.download_genbank_accessions(new_accessions, genbank_zip)
+        finish_timing(start_time)
+        extra_fasta = get_new_extra_fasta(starting_tree_accessions, extra_fasta)
+    else:
+        start_time = start_timing(f"Downloading all GenBank genomes for taxid {taxid} to {genbank_zip}...")
+        ncbi.download_genbank(taxid, genbank_zip)
+        finish_timing(start_time)
+    genbank_fasta, gb_count, filtered_count = unpack_genbank_zip(genbank_zip, acc_to_length_segment, min_length, max_N_proportion, refseq_segment)
+
+    # The core of the pipeline: align sequences, build tree, finalize metadata
     msa_vcf, aligned_count = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion)
-    empty_tree = make_empty_tree()
-    preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
-    opt_unfiltered_tree = run_matoptimize(preopt_tree, msa_vcf)
+    if args.update:
+        if aligned_count == 0:
+            preopt_tree = "usher_sampled.pb.gz"
+            shutil.copy(update_tree_input, preopt_tree)
+        else:
+            preopt_tree = run_usher_sampled(update_tree_input, msa_vcf)
+    else:
+        empty_tree = make_empty_tree()
+        preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
+    opt_unfiltered_tree = run_matoptimize(preopt_tree, msa_vcf, args.update)
     opt_tree, sample_names, tree_tip_count = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length)
+    existing_nextclade_assignments, existing_column_count = get_existing_nextclade_assignments(args.update, starting_tree_accessions, nextclade_path)
     nextclade_assignments, nextclade_clade_columns = run_nextclade(nextclade_path, nextclade_clade_columns,
+                                                                   existing_nextclade_assignments, existing_column_count,
                                                                    genbank_fasta, extra_fasta, refseq_fasta)
-    metadata_tsv, viz_tree = rename_seqs(opt_tree, data_report, nextclade_assignments, nextclade_clade_columns, acc_to_strain,
-                                         sample_names)
+    metadata_tsv, rename_tsv = finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clade_columns,
+                                                 refseq_segment, sample_names)
+    viz_tree = rename_seqs(opt_tree, rename_tsv)
     dump_newick(viz_tree)
     write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count)
     usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff)

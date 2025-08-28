@@ -1,5 +1,4 @@
 import requests
-import csv
 import logging
 import sys
 import time
@@ -168,6 +167,17 @@ class NcbiHelper:
                     f.write(chunk)
         return filename
 
+    def post_download_zip_file(self, url, params, filename):
+        """Download a zip file from the given URL and save it to the specified filename."""
+        headers = {"accept": "application/zip"}
+        resp = requests.post(url, headers=headers, json=params, stream=True)
+        self.check_response(resp)
+        with open(filename, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        return filename
+
     def download_refseq(self, assembly_id, filename):
         """Download RefSeq using the NCBI Datasets API which requires the GCF_* assembly ID."""
         url = f"{NCBI_DATASETS_V2_BASE}/genome/accession/{assembly_id}/download?include_annotation_type=GENOME_FASTA&include_annotation_type=GENOME_GBFF&filename={filename}"
@@ -178,25 +188,44 @@ class NcbiHelper:
         url = f"{NCBI_DATASETS_V2_BASE}/virus/taxon/{taxid}/genome/download?include_sequence=GENOME&aux_report=DATASET_REPORT&aux_report=BIOSAMPLE_REPORT&filename={filename}"
         return self.download_zip_file(url, filename)
 
-    def query_ncbi_virus_metadata(self, taxid):
-        """Query the undocumented NCBI Virus API to get a little extra metadata that isn't in NCBI Datasets.
-        (Currently just strain)"""
-        url = f"https://www.ncbi.nlm.nih.gov/genomes/VirusVariation/vvsearch2/?fq=%7B%21tag%3DSeqType_s%7DSeqType_s%3A%28%22Nucleotide%22%29&fq=VirusLineageId_ss%3A%28{taxid}%29&q=%2A%3A%2A&cmd=download&dlfmt=csv&fl=genbank_accession_rev%3AAccVer_s%2Cstrain%3AStrain_s"
-        # Request the URL, unpack the two-column CSV result into a dict, return the dict
+    def download_genbank_accessions(self, accessions, filename):
+        """Download specific GenBank accessions for the Taxonomy ID.  Return the .zip file name."""
+        # If it looks weird that the URL has a GET-style param even though other params are separately POSTed,
+        # I'm just following the API doc as of Aug. 2025:
+        # https://www.ncbi.nlm.nih.gov/datasets/docs/v2/api/rest-api/#post-/virus/genome/download
+        url = f"{NCBI_DATASETS_V2_BASE}/virus/genome/download?filename={filename}"
+        params = {"include_sequence": ["GENOME"],
+                  "aux_report": ["NONE"],
+                  "accessions": accessions}
+        return self.post_download_zip_file(url, params, filename)
+
+    def query_ncbi_virus_metadata(self, taxid, filename):
+        """Query the undocumented NCBI Virus API for metadata for all sequences for taxid.
+        Unlike NCBI Datasets' data_report, this includes strain and serotype.  Results written to filename are CSV."""
+        url = ("https://www.ncbi.nlm.nih.gov/genomes/VirusVariation/vvsearch2/" +
+               "?fq=%7B%21tag%3DSeqType_s%7DSeqType_s%3A%28%22Nucleotide%22%29"
+               f"&fq=VirusLineageId_ss%3A%28{taxid}%29&q=%2A%3A%2A&cmd=download&dlfmt=csv" +
+               "&fl=accession%3AAccVer_s" +
+               "%2Cisolate%3AIsolate_s" +
+               "%2Ccountry_location%3ACountryFull_s" +
+               "%2Cdate%3ACollectionDate_s" +
+               "%2Clength%3ASLen_i" +
+               "%2Cbiosample%3ABioSample_s" +
+               "%2Chost%3AHost_s" +
+               "%2Csubmitter%3ASubmitterAffilFull_s" +
+               "%2Cauthors%3AAuthors_csv" +
+               "%2Cstrain%3AStrain_s" +
+               "%2Cserotype%3ASerotype_s" +
+               "%2Csegment%3ASegment_s"
+               )
+        # Request the URL, write results to filename
         time.sleep(1)
-        resp = requests.get(url)
+        resp = requests.get(url, stream=True)
         self.check_response(resp)
-        acc_to_strain = {}
-        reader = csv.reader(resp.text.strip().split('\n'))
-        for row in reader:
-            if len(row) != 2:
-                self.logger.warning(f"Unexpected number of columns in NCBI Virus API response: {len(row)} instead of 2")
-                return {}
-            row[0] = row[0].strip()  # genbank_accession_rev
-            row[1] = row[1].strip()  # strain
-            if row[0] and row[1]:
-                acc_to_strain[row[0]] = row[1]
-        return acc_to_strain
+        with open(filename, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
 
     def get_species_level_taxid(self, subspecies_taxid):
         """Return the species-level Taxonomy ID for a given subspecies Taxonomy ID."""

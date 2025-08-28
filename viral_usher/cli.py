@@ -34,6 +34,7 @@ def main():
     build_parser = subparsers.add_parser("build", help="Run the pipeline to download sequences and build a tree")
     build_parser.add_argument("-c", "--config", type=str, required=True, help="Path to config file input")
     build_parser.add_argument("-d", "--docker_image", type=str, help=f"Use this docker image instead of docker.io/{config.DEFAULT_DOCKER_IMAGE}")
+    build_parser.add_argument("-u", "--update", action="store_true", help="Update an existing tree with new sequences (requires optimized.pb.gz tree from previous build)")
 
     args = parser.parse_args()
 

@@ -16,6 +16,7 @@ build
 *.fasta
 *.fa
 *.gbff
+*.csv
 *.tsv
 *.txt
 *.log
