@@ -515,7 +515,7 @@ def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clad
             name = make_display_name(isolate, strain, date, accession, country)
             metadata = name + '\t' + '\t'.join(row_mod)
             if nextclade_clade_columns:
-                clades = nextclade_assignments.get(accession, ['' * len(nextclade_col_list)])
+                clades = nextclade_assignments.get(accession, [''] * len(nextclade_col_list))
                 metadata += '\t' + '\t'.join(clades)
             # Write output to both renaming file and metadata file
             r_out.write("\t".join([accession, name]) + '\n')
