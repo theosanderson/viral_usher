@@ -690,17 +690,28 @@ def main():
     finish_timing(start_time)
 
     # Download GenBank genomes for the given Taxonomy ID: only the new ones if --update, otherwise all of them
+    got_genbank = False
     if (args.update):
         new_accessions = find_new_accessions(starting_tree_accessions, acc_to_length_segment, min_length, refseq_segment)
-        start_time = start_timing(f"Downloading {len(new_accessions)} new GenBank genomes for taxid {taxid} to {genbank_zip}...")
-        ncbi.download_genbank_accessions(new_accessions, genbank_zip)
-        finish_timing(start_time)
+        if len(new_accessions) > 0:
+            start_time = start_timing(f"Downloading {len(new_accessions)} new GenBank genomes for taxid {taxid} to {genbank_zip}...")
+            ncbi.download_genbank_accessions(new_accessions, genbank_zip)
+            got_genbank = True
+            finish_timing(start_time)
+        else:
+            print("No new GenBank accessions found, skipping GenBank download.")
         extra_fasta = get_new_extra_fasta(starting_tree_accessions, extra_fasta)
     else:
         start_time = start_timing(f"Downloading all GenBank genomes for taxid {taxid} to {genbank_zip}...")
         ncbi.download_genbank(taxid, genbank_zip)
+        got_genbank = True
         finish_timing(start_time)
-    genbank_fasta, gb_count, filtered_count = unpack_genbank_zip(genbank_zip, acc_to_length_segment, min_length, max_N_proportion, refseq_segment)
+    if got_genbank:
+        genbank_fasta, gb_count, filtered_count = unpack_genbank_zip(genbank_zip, acc_to_length_segment, min_length, max_N_proportion, refseq_segment)
+    else:
+        genbank_fasta = "/dev/null"
+        gb_count = 0
+        filtered_count = 0
 
     # The core of the pipeline: align sequences, build tree, finalize metadata
     msa_vcf, aligned_count = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion)
