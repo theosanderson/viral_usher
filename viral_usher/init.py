@@ -408,7 +408,7 @@ def handle_init(args):
             sys.exit(1)
         species = args.species
         taxid = args.taxonomy_id
-        if not species or not taxonomy_id:
+        if not species or not taxid:
             species, taxid = ncbi.get_species_taxid_for_refseq(refseq_id)
         if not species and args.species:
             species = args.species
