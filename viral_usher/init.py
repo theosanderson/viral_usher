@@ -406,7 +406,17 @@ def handle_init(args):
         if not assembly_id:
             print(f"Could not find assembly ID for RefSeq ID {refseq_id} -- can't download RefSeq.")
             sys.exit(1)
-        species, taxid = ncbi.get_species_taxid_for_refseq(refseq_id)
+        species = args.species
+        taxid = args.taxonomy_id
+        if not species or not taxonomy_id:
+            species, taxid = ncbi.get_species_taxid_for_refseq(refseq_id)
+        if not species and args.species:
+            species = args.species
+        if not taxid and args.taxonomy_id:
+            taxid = args.taxonomy_id
+        if not species or not taxid:
+            print(f"Could not find species or taxonomy ID for RefSeq ID {refseq_id}.", file=sys.stderr)
+            sys.exit(1)
         taxid = ncbi.get_species_level_taxid(taxid)
         taxid = str(taxid)
         if args.taxonomy_id:

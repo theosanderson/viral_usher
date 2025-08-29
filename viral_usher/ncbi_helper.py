@@ -42,7 +42,8 @@ class NcbiHelper:
         try:
             result = resp.json()
         except json.JSONDecodeError:
-            self.logger.error(resp.text)
+            self.logger.error(f"Expected JSON from status 200 response but got decode error from url {url} with params:\n" +
+                              json.dumps(params, indent=2) + "\nResponse:\n" + resp.text)
             sys.exit(1)
         return result
 
@@ -70,6 +71,11 @@ class NcbiHelper:
         """Use ELink to get links from dbfrom to db for the given ID.  Return a list of linked GI numbers.  Assumes that there is only one linksetdb."""
         data = self.eutils_request(NCBI_EUTILS_ELINK_URL, {"db": db, "dbfrom": dbfrom, "id": id})
         linksets = data.get("linksets", [])
+        if not linksets:
+            self.logger.warning(f"No linksets found for {dbfrom} GI {id}.  data: {data}")
+            return []
+        if len(linksets) > 1:
+            self.logger.warning(f"Multiple linksets found for {dbfrom} GI {id}. Using the first one.  data: {data}")
         return linksets[0].get("ids")
 
     def elink_request_one(self, db, dbfrom, id):
@@ -145,8 +151,11 @@ class NcbiHelper:
         refseq_gi = self.esearch_request_one("nuccore", f"{refseq_id}[Accession]")
         if not refseq_gi:
             self.logger.warning(f"No RefSeq GI number for accession {refseq_id}")
-            return None
+            return None, None
         nuc_record = self.esummary_request_one("nuccore", refseq_gi)
+        if not nuc_record:
+            self.logger.warning(f"No nuccore record for RefSeq GI number {refseq_gi}")
+            return None, None
         species = nuc_record.get("organism")
         taxid = nuc_record.get("taxid")
         if not taxid:
