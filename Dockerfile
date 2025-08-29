@@ -34,6 +34,9 @@ RUN mkdir bin && cd bin \
     && rm nextclade_to_maple.zip \
     && chmod a+x *
 
+# Install NCBI's datasets command line tool
+RUN wget -O bin/datasets 'https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-amd64/datasets' \
+    && chmod a+x bin/datasets
 
 # Done with build stage; set up final image
 

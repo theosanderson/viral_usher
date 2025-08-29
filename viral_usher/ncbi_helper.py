@@ -1,8 +1,11 @@
+"""Get data from NCBI using APIs (EUtils, Virus, Datasets) or the datasets command-line tool."""
+
 import requests
 import logging
 import sys
 import time
 import json
+import subprocess
 import xml.etree.ElementTree as ET
 
 NCBI_DATASETS_V2_BASE = "https://api.ncbi.nlm.nih.gov/datasets/v2"
@@ -23,6 +26,18 @@ class NcbiHelper:
             self.logger.setLevel(logging.DEBUG)
         else:
             self.logger.setLevel(logging.INFO)
+
+    def run_command(self, command):
+        """Run a command using subprocess.run, check for errors."""
+        import subprocess
+        self.logger.debug(f"Running command: {' '.join(command)}")
+        try:
+            result = subprocess.run(command, check=True, capture_output=True, text=True)
+            self.logger.debug(f"Command output: {result.stdout}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Command '{' '.join(command)}' failed with exit code {e.returncode}")
+            self.logger.error(f"stderr: {e.stderr}")
+            sys.exit(1)
 
     # TODO: better error handling
     def check_response(self, resp):
@@ -194,8 +209,10 @@ class NcbiHelper:
 
     def download_genbank(self, taxid, filename):
         """Download all GenBank genomes for the Taxonomy ID.  Return the .zip file name."""
-        url = f"{NCBI_DATASETS_V2_BASE}/virus/taxon/{taxid}/genome/download?include_sequence=GENOME&aux_report=DATASET_REPORT&aux_report=BIOSAMPLE_REPORT&filename={filename}"
-        return self.download_zip_file(url, filename)
+        # Use the NCBI datasets command-line tool because the plain API seems to get cut off more often
+        command = ["datasets", "download", "virus", "genome", "taxon", str(taxid),
+                    "--filename", filename, "--no-progressbar"]
+        return self.run_command(command)
 
     def download_genbank_accessions(self, accessions, filename):
         """Download specific GenBank accessions for the Taxonomy ID.  Return the .zip file name."""
