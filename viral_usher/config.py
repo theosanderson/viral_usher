@@ -22,8 +22,8 @@ def read_config(config_path):
 def check_refseq_acc(refseq_acc):
     if not refseq_acc or not isinstance(refseq_acc, str):
         raise ValueError("RefSeq accession must be a non-empty string.")
-    if not refseq_acc.startswith("NC_") and not refseq_acc.startswith("NZ_"):
-        raise ValueError("RefSeq accession must start with 'NC_' or 'NZ_'.")
+    if not (refseq_acc.startswith("NC_") or refseq_acc.startswith("NZ_") or refseq_acc.startswith("AC_")):
+        raise ValueError("RefSeq accession must start with 'NC_', 'NZ_' or 'AC_'.")
 
 
 def check_taxonomy_id(taxonomy_id):

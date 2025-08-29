@@ -28,6 +28,8 @@ def written_config_file(config_zika_no_workdir_path, config_zika_no_workdir_data
 
 def test_check_refseq_acc_good():
     assert viral_usher.config.check_refseq_acc("NC_012345.1") is None
+    assert viral_usher.config.check_refseq_acc("NZ_012345.1") is None
+    assert viral_usher.config.check_refseq_acc("AC_012345.1") is None
 
 
 def test_check_refseq_acc_bad():
