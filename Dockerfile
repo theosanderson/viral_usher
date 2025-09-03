@@ -10,14 +10,17 @@ FROM python:3.12 AS build
 # Build UShER from source
 RUN apt-get update && apt-get install -y sudo
 WORKDIR /usher
-RUN git clone https://github.com/yatisht/usher.git
+#*** TODO: change this back to yatisht when my tiny_vcf_gz branch is merged
+RUN git clone https://github.com/AngieHinrichs/usher.git
 # Install gcc-12 and set env variables to use gcc-12 because gcc-14 (in the latest Docker base images)
 # fails on TBB code because it expects C++20 syntax.
 # Running cmake with -DCMAKE_CXX_STANDARD=11 -DCMAKE_CXX_FLAGS="-std=c++11"  didn't work.
 RUN apt-get update && apt-get install -y gcc-12 g++-12
 ENV CC=gcc-12
 ENV CXX=g++-12
+#*** TODO: get rid of the git checkout tiny_vcf_gz when it's merged
 RUN cd usher \
+    && git checkout tiny_vcf_gz \
     && bash -x install/installUbuntu.sh
 
 WORKDIR /app
