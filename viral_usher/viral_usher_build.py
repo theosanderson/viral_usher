@@ -486,6 +486,10 @@ def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clad
         country_loc_idx = header.index('country_location')
         # In metadata header, make separate columns for country and location:
         header_mod = header[:country_loc_idx] + ['country', 'location'] + header[country_loc_idx+1:]
+        # Rename 'strain' to 'gb_strain' because I add 'strain' at the beginning below, following the
+        # nextstrain convention of 'strain' meaning the full descriptor
+        header_mod[header_mod.index('strain')] = 'gb_strain'
+        # Remove 'segment' if refseq has no segment
         segment_idx = header_mod.index('segment')
         if remove_segment:
             header_mod.pop(segment_idx)
