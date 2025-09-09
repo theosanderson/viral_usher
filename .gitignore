@@ -26,6 +26,7 @@ changed_nodes
 *.nwk
 *.pb
 *.jsonl
+*.json
 !example/*.fasta
 !example/*.jsonl.gz
 !app_note/*.tsv

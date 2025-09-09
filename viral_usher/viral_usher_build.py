@@ -3,6 +3,7 @@ import csv
 import datetime
 import gzip
 import io
+import json
 import lzma
 import os
 import re
@@ -425,6 +426,26 @@ def run_nextclade(nextclade_path, nextclade_clade_columns, existing_nextclade_as
     return nextclade_assignments, nextclade_clade_columns
 
 
+def get_numerical_date(date):
+    """Date should be YYYY-MM-DD or YYYY-MM or YYYY.  Return year.fraction"""
+    if not date:
+        return 0.0
+    groups = re.match('^([0-9]{4})(-([0-9]{2})(-([0-9]{2}))?)?$', date)
+    if not groups:
+        return 0.0
+    year = int(groups[1])
+    if groups[3]:
+        month = int(groups[3])
+        day = int(groups[5]) if groups[5] else 15
+    else:
+        month = 7
+        day = 1
+    date_obj = datetime.date(year, month, day)
+    day_of_year = date_obj.timetuple().tm_yday
+    fraction = day_of_year / 365.25
+    return year + fraction
+
+
 def fudge_isolate(isolate, accession, date, country, year):
     """If isolate looks like a full /-separated descriptor then use it.
     Otherwise try to approximate it from available metadata bits and pieces."""
@@ -472,6 +493,8 @@ def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clad
     metadata_out = "metadata.tsv.gz"
     start_time = start_timing(f"Finalizing sequence names for display and metadata, writing to {metadata_out}...")
     remove_segment = not refseq_segment
+    date_min = None
+    date_max = None
     # Use a subprocess to get input from grep -Fwf {sample_names} {ncbi_virus_metadata}
     grep_cmd = ['grep', '-Fwf', sample_names, ncbi_virus_metadata]
     with subprocess.Popen(grep_cmd, stdout=subprocess.PIPE, text=True) as grep_proc, \
@@ -493,6 +516,8 @@ def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clad
         segment_idx = header_mod.index('segment')
         if remove_segment:
             header_mod.pop(segment_idx)
+        # Add numerical date column
+        header_mod.append('num_date')
         # No header for rename_out; write header for metadata_out
         metadata_header = 'strain\t' + '\t'.join(header_mod)
         if nextclade_clade_columns:
@@ -516,6 +541,16 @@ def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clad
             row_mod = row[:country_loc_idx] + [country, location] + row[country_loc_idx+1:]
             if remove_segment:
                 row_mod.pop(segment_idx)
+            # Add numerical date column (year.fraction)
+            if date and re.match('^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$', date):
+                num_date = get_numerical_date(date)
+                if date_min is None or num_date < date_min:
+                    date_min = num_date
+                if date_max is None or num_date > date_max:
+                    date_max = num_date
+                row_mod.append(f"{num_date:.6f}")
+            else:
+                row_mod.append("")
             name = make_display_name(isolate, strain, date, accession, country)
             metadata = name + '\t' + '\t'.join(row_mod)
             if nextclade_clade_columns:
@@ -525,7 +560,7 @@ def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clad
             r_out.write("\t".join([accession, name]) + '\n')
             m_out.write(metadata + '\n')
     finish_timing(start_time)
-    return metadata_out, rename_out
+    return metadata_out, rename_out, date_min, date_max
 
 
 def rename_seqs(pb_in, rename_tsv):
@@ -556,18 +591,32 @@ def get_header(tsv_in):
     return header
 
 
-def usher_to_taxonium(pb_in, metadata_in, refseq_gbff, tip_count, species, refseq_acc):
+def make_taxonium_config(date_min, date_max):
+    """Make a config file with a color gradient from date_min to date_max."""
+    config_out = "taxonium_config.json"
+    config = {"colorRamps": {"meta_num_date": {"scale": [[date_min, "#0000F8"], [date_max, "#F80000"]] }},
+              "customNames": {"meta_num_date": "Date (numeric)",
+                              "meta_gb_strain": "Strain"}}
+    with open(config_out, 'w') as f:
+        json.dump(config, f)
+    return config_out
+
+
+def usher_to_taxonium(pb_in, metadata_in, refseq_gbff, tip_count, species, refseq_acc, date_min, date_max):
     jsonl_out = "tree.jsonl.gz"
     start_time = start_timing(f"Running usher_to_taxonium to make {jsonl_out}...")
     columns = ','.join(get_header(metadata_in))
     title = f"{tip_count} {species} sequences from GenBank aligned to {refseq_acc}"
+    config = make_taxonium_config(date_min, date_max)
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
-               '--columns', columns, '--title', title, '--genbank', refseq_gbff, '--output', jsonl_out]
+               '--columns', columns, '--title', title, '--config_json', config,
+               '--genbank', refseq_gbff, '--output', jsonl_out]
     if not run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log', fail_ok=True):
         finish_timing(start_time)
         start_time = start_timing("usher_to_taxonium failed with --genbank, trying again without --genbank...")
         command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
-                   '--columns', columns, '--title', title, '--output', jsonl_out]
+                   '--columns', columns, '--title', title, '--config_json', config,
+                   '--output', jsonl_out]
         run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log')
     finish_timing(start_time)
     return jsonl_out
@@ -740,12 +789,12 @@ def main():
     nextclade_assignments, nextclade_clade_columns = run_nextclade(nextclade_path, nextclade_clade_columns,
                                                                    existing_nextclade_assignments, existing_column_count,
                                                                    genbank_fasta, extra_fasta, refseq_fasta)
-    metadata_tsv, rename_tsv = finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clade_columns,
-                                                 refseq_segment, sample_names)
+    metadata_tsv, rename_tsv, date_min, date_max = finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clade_columns,
+                                                                     refseq_segment, sample_names)
     viz_tree = rename_seqs(opt_tree, rename_tsv)
     dump_newick(viz_tree)
     write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count)
-    usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff, tree_tip_count, species, refseq_acc)
+    usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff, tree_tip_count, species, refseq_acc, date_min, date_max)
 
 
 if __name__ == "__main__":
