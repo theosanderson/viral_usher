@@ -29,7 +29,6 @@ class NcbiHelper:
 
     def run_command(self, command):
         """Run a command using subprocess.run, check for errors."""
-        import subprocess
         self.logger.debug(f"Running command: {' '.join(command)}")
         try:
             result = subprocess.run(command, check=True, capture_output=True, text=True)
@@ -211,7 +210,7 @@ class NcbiHelper:
         """Download all GenBank genomes for the Taxonomy ID.  Return the .zip file name."""
         # Use the NCBI datasets command-line tool because the plain API seems to get cut off more often
         command = ["datasets", "download", "virus", "genome", "taxon", str(taxid),
-                    "--filename", filename, "--no-progressbar"]
+                   "--filename", filename, "--no-progressbar"]
         return self.run_command(command)
 
     def download_genbank_accessions(self, accessions, filename):
