@@ -451,6 +451,7 @@ def handle_init(args):
         "viral_usher_version": viral_usher_version,
         "refseq_acc": refseq_id,
         "refseq_assembly": assembly_id,
+        "species": species,
         "taxonomy_id": taxid,
         "nextclade_dataset": nextclade_path,
         "nextclade_clade_columns": nextclade_columns,

@@ -556,17 +556,18 @@ def get_header(tsv_in):
     return header
 
 
-def usher_to_taxonium(pb_in, metadata_in, refseq_gbff):
+def usher_to_taxonium(pb_in, metadata_in, refseq_gbff, tip_count, species, refseq_acc):
     jsonl_out = "tree.jsonl.gz"
     start_time = start_timing(f"Running usher_to_taxonium to make {jsonl_out}...")
     columns = ','.join(get_header(metadata_in))
+    title = f"{tip_count} {species} sequences from GenBank aligned to {refseq_acc}"
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
-               '--columns', columns, '--genbank', refseq_gbff, '--output', jsonl_out]
+               '--columns', columns, '--title', title, '--genbank', refseq_gbff, '--output', jsonl_out]
     if not run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log', fail_ok=True):
         finish_timing(start_time)
         start_time = start_timing("usher_to_taxonium failed with --genbank, trying again without --genbank...")
         command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
-                   '--columns', columns, '--output', jsonl_out]
+                   '--columns', columns, '--title', title, '--output', jsonl_out]
         run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log')
     finish_timing(start_time)
     return jsonl_out
@@ -663,6 +664,11 @@ def main():
     max_parsimony = int(config_contents.get('max_parsimony', str(config.DEFAULT_MAX_PARSIMONY)))
     max_branch_length = int(config_contents.get('max_branch_length', str(config.DEFAULT_MAX_BRANCH_LENGTH)))
     extra_fasta = config_contents.get('extra_fasta', '')
+    species = config_contents.get('species', None)
+    if not species:
+        start_time = start_timing(f"Looking up species name for RefSeq {refseq_acc}...")
+        species, _ = ncbi_helper.NcbiHelper().get_species_taxid_for_refseq(refseq_acc)
+        finish_timing(start_time)
     refseq_zip = f"{refseq_acc}.zip"
     genbank_zip = f"genbank_{taxid}.zip"
 
@@ -739,7 +745,7 @@ def main():
     viz_tree = rename_seqs(opt_tree, rename_tsv)
     dump_newick(viz_tree)
     write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count)
-    usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff)
+    usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff, tree_tip_count, species, refseq_acc)
 
 
 if __name__ == "__main__":
