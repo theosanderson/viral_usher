@@ -18,6 +18,10 @@ NCBI_EUTILS_EFETCH_URL = f"{NCBI_EUTILS_BASE}/efetch.fcgi"
 
 
 class NcbiHelper:
+    max_retries = 5
+    retry_delay = 60
+    retry_delay_factor = 3
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
@@ -38,7 +42,24 @@ class NcbiHelper:
             self.logger.error(f"stderr: {e.stderr}")
             sys.exit(1)
 
-    # TODO: better error handling
+    def query_with_retry(self, func, *args, **kwargs):
+        """Call func with args and kwargs, retrying on failure."""
+        time.sleep(1)
+        attempt = 0
+        delay = self.retry_delay
+        while attempt < self.max_retries:
+            attempt += 1
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                self.logger.error(f"Function {func.__name__} failed on attempt {attempt} with error: {e}")
+            if attempt < self.max_retries:
+                time.sleep(delay)
+                delay *= self.retry_delay_factor
+            else:
+                self.logger.error(f"Function {func.__name__} failed after {self.max_retries} attempts.")
+                sys.exit(1)
+
     def check_response(self, resp):
         if resp.status_code != 200:
             self.logger.error(f"API request failed: {resp.status_code}")
@@ -46,20 +67,23 @@ class NcbiHelper:
                 self.logger.error(json.dumps(resp.json(), indent=2))
             except json.JSONDecodeError:
                 self.logger.error(resp.text)
-            sys.exit(1)
+            return False
+        return True
 
     def get_request(self, url, params):
-        """Send a GET request, check the response, and return the JSON data.  Sleep to rate-limit."""
-        time.sleep(1)
-        resp = requests.get(url, params=params)
-        self.check_response(resp)
-        try:
-            result = resp.json()
-        except json.JSONDecodeError:
-            self.logger.error(f"Expected JSON from status 200 response but got decode error from url {url} with params:\n" +
-                              json.dumps(params, indent=2) + "\nResponse:\n" + resp.text)
-            sys.exit(1)
-        return result
+        """Send a GET request, check the response, and return the JSON data.  Retry on failure.  Sleep to rate-limit."""
+        def get_request_core(url, params):
+            resp = requests.get(url, params=params)
+            if self.check_response(resp):
+                try:
+                    result = resp.json()
+                    return result
+                except json.JSONDecodeError:
+                    raise Exception(f"Expected JSON from status 200 response but got decode error from url {url} with params:\n" +
+                                    json.dumps(params, indent=2) + "\nResponse:\n" + resp.text)
+            else:
+                raise Exception(f"Bad response from {url} with params:\n{json.dumps(params, indent=2)}")
+        return self.query_with_retry(get_request_core, url, params)
 
     def eutils_request(self, url, params):
         """Send a request, check the response, and return the JSON data."""
@@ -182,24 +206,34 @@ class NcbiHelper:
     def download_zip_file(self, url, filename):
         """Download a zip file from the given URL and save it to the specified filename."""
         headers = {"accept": "application/zip"}
-        resp = requests.get(url, headers=headers, stream=True)
-        self.check_response(resp)
-        with open(filename, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-        return filename
+
+        def download_zip_file_core(url, filename):
+            resp = requests.get(url, headers=headers, stream=True)
+            if self.check_response(resp):
+                with open(filename, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                return filename
+            else:
+                raise Exception(f"Bad response from {url}")
+        return self.query_with_retry(download_zip_file_core, url, filename)
 
     def post_download_zip_file(self, url, params, filename):
         """Download a zip file from the given URL and save it to the specified filename."""
         headers = {"accept": "application/zip"}
-        resp = requests.post(url, headers=headers, json=params, stream=True)
-        self.check_response(resp)
-        with open(filename, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-        return filename
+
+        def post_download_zip_file_core(url, params, filename):
+            resp = requests.post(url, headers=headers, json=params, stream=True)
+            if self.check_response(resp):
+                with open(filename, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                return filename
+            else:
+                raise Exception(f"Bad response from {url} with params:\n{json.dumps(params, indent=2)}")
+        return self.query_with_retry(post_download_zip_file_core, url, params, filename)
 
     def download_refseq(self, assembly_id, filename):
         """Download RefSeq using the NCBI Datasets API which requires the GCF_* assembly ID."""
@@ -244,25 +278,33 @@ class NcbiHelper:
                "%2Csegment%3ASegment_s"
                )
         # Request the URL, write results to filename
-        time.sleep(1)
-        resp = requests.get(url, stream=True)
-        self.check_response(resp)
-        with open(filename, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
+
+        def query_ncbi_virus_metadata_core(url, filename):
+            resp = requests.get(url, stream=True)
+            if self.check_response(resp):
+                with open(filename, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                return filename
+            else:
+                raise Exception(f"Bad response from {url}")
+        return self.query_with_retry(query_ncbi_virus_metadata_core, url, filename)
 
     def get_species_level_taxid(self, subspecies_taxid):
         """Return the species-level Taxonomy ID for a given subspecies Taxonomy ID."""
         # EFETCH with retmode=json returns only the subspecies ID, but I need the whole record with lineage etc.
         # That requires parsing the XML response.
-        time.sleep(1)
-        resp = requests.get(NCBI_EUTILS_EFETCH_URL, params={"id": subspecies_taxid, "db": "taxonomy"})
-        self.check_response(resp)
-        # Parse the XML response to find the species-level Taxonomy ID
-        root = ET.fromstring(resp.content)
-        for taxon in root.findall(".//Taxon"):
-            if taxon.find("Rank").text == "species":
-                print(f"Found species-level Taxonomy ID: {taxon.find('TaxId').text} for subspecies Taxonomy ID: {subspecies_taxid}")
-                return taxon.find("TaxId").text
-        return subspecies_taxid
+        def get_species_level_taxid_core(subspecies_taxid):
+            resp = requests.get(NCBI_EUTILS_EFETCH_URL, params={"id": subspecies_taxid, "db": "taxonomy"})
+            if self.check_response(resp):
+                # Parse the XML response to find the species-level Taxonomy ID
+                root = ET.fromstring(resp.content)
+                for taxon in root.findall(".//Taxon"):
+                    if taxon.find("Rank").text == "species":
+                        print(f"Found species-level Taxonomy ID: {taxon.find('TaxId').text} for subspecies Taxonomy ID: {subspecies_taxid}")
+                        return taxon.find("TaxId").text
+                return subspecies_taxid
+            else:
+                raise Exception(f"Bad response from {NCBI_EUTILS_EFETCH_URL} with params: id={subspecies_taxid}, db=taxonomy")
+        return self.query_with_retry(get_species_level_taxid_core, subspecies_taxid)
