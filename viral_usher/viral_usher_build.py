@@ -486,6 +486,14 @@ def make_display_name(isolate, strain, date, accession, country):
     return name
 
 
+def get_nextclade_column_list(nextclade_clade_columns):
+    if not nextclade_clade_columns:
+        return []
+    nextclade_col_list = nextclade_clade_columns.split(',')
+    nextclade_col_list = [col if col.startswith('nextclade') or col.startswith('Nextclade') else 'nextclade_' + col for col in nextclade_col_list]
+    return nextclade_col_list
+
+
 def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clade_columns, refseq_segment, sample_names):
     """Make a file for renaming sequence names in tree to include country, isolate name and date when available.
     Prepare metadata for taxonium."""
@@ -521,8 +529,7 @@ def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clad
         # No header for rename_out; write header for metadata_out
         metadata_header = 'strain\t' + '\t'.join(header_mod)
         if nextclade_clade_columns:
-            nextclade_col_list = nextclade_clade_columns.split(',')
-            nextclade_col_list = [col if col.startswith('nextclade_') or col.startswith('Nextclade)_') else 'nextclade_' + col for col in nextclade_col_list]
+            nextclade_col_list = get_nextclade_column_list(nextclade_clade_columns)
             metadata_header += '\t' + '\t'.join(nextclade_col_list)
         m_out.write(metadata_header + '\n')
 
@@ -591,23 +598,28 @@ def get_header(tsv_in):
     return header
 
 
-def make_taxonium_config(date_min, date_max):
+def make_taxonium_config(date_min, date_max, nextclade_clade_columns):
     """Make a config file with a color gradient from date_min to date_max."""
     config_out = "taxonium_config.json"
-    config = {"colorRamps": {"meta_num_date": {"scale": [[date_min, "#0000F8"], [date_max, "#F80000"]] }},
+    color_by_options = ["meta_country", "meta_location", "meta_num_date", "meta_host", "meta_serotype"]
+    if nextclade_clade_columns:
+        color_by_options += ["meta_" + col for col in get_nextclade_column_list(nextclade_clade_columns)]
+    color_by_options += ["genotype", "None"]
+    config = {"colorRamps": {"meta_num_date": {"scale": [[date_min, "#0000F8"], [date_max, "#F80000"]]}},
               "customNames": {"meta_num_date": "Date (numeric)",
-                              "meta_gb_strain": "Strain"}}
+                              "meta_gb_strain": "Strain"},
+              "colorBy": {"colorByOptions": color_by_options}}
     with open(config_out, 'w') as f:
         json.dump(config, f)
     return config_out
 
 
-def usher_to_taxonium(pb_in, metadata_in, refseq_gbff, tip_count, species, refseq_acc, date_min, date_max):
+def usher_to_taxonium(pb_in, metadata_in, refseq_gbff, tip_count, species, refseq_acc, date_min, date_max, nextclade_clade_columns):
     jsonl_out = "tree.jsonl.gz"
     start_time = start_timing(f"Running usher_to_taxonium to make {jsonl_out}...")
     columns = ','.join(get_header(metadata_in))
     title = f"{tip_count} {species} sequences from GenBank aligned to {refseq_acc}"
-    config = make_taxonium_config(date_min, date_max)
+    config = make_taxonium_config(date_min, date_max, nextclade_clade_columns)
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
                '--columns', columns, '--title', title, '--config_json', config,
                '--genbank', refseq_gbff, '--output', jsonl_out]
@@ -794,7 +806,7 @@ def main():
     viz_tree = rename_seqs(opt_tree, rename_tsv)
     dump_newick(viz_tree)
     write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count)
-    usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff, tree_tip_count, species, refseq_acc, date_min, date_max)
+    usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff, tree_tip_count, species, refseq_acc, date_min, date_max, nextclade_clade_columns)
 
 
 if __name__ == "__main__":
