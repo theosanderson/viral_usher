@@ -89,8 +89,20 @@ def rewrite_config(config_contents, workdir):
     now = datetime.datetime.now()
     new_name = 'local_config.' + now.strftime("%Y-%m-%d_%H-%M-%S") + '.toml'
     new_path = workdir + '/' + new_name
-    config.write_config(config_contents, new_path)
+    config.write_config(config_contents, new_path, False)
     return new_name
+
+
+def localize_file(config_contents, key, workdir):
+    """If key is in config_contents, check whether the file is in workdir; if not, copy it there and update config_contents[key].
+    Return True if config_contents was changed, else False."""
+    if key in config_contents and config_contents[key] != "":
+        filepath = config_contents[key]
+        filepath_rel = maybe_copy_to_workdir(filepath, workdir)
+        if filepath_rel != filepath:
+            config_contents[key] = filepath_rel
+            return True
+    return False
 
 
 def localize_config(args_config, config_contents):
@@ -98,15 +110,11 @@ def localize_config(args_config, config_contents):
     So absolute paths in the config need to be converted to relative paths, and if input files
     are not already in the workdir, then they need to be copied there."""
     workdir = config_contents['workdir']
-    # If extra_fasta is given, make sure it will be available in workdir and that
-    # the config used by the docker image script uses its relative path in workdir.
-    config_changed = False
-    extra_fasta = config_contents.get('extra_fasta', '')
-    if extra_fasta:
-        extra_fasta_rel = maybe_copy_to_workdir(extra_fasta, workdir)
-        if extra_fasta_rel != extra_fasta:
-            config_contents['extra_fasta'] = extra_fasta_rel
-            config_changed = True
+    # If any user-provided files are given, make sure they will be available in workdir and that
+    # the config used by the docker image script uses their relative paths in workdir.
+    config_changed = localize_file(config_contents, 'extra_fasta', workdir)
+    config_changed |= localize_file(config_contents, 'ref_fasta', workdir)
+    config_changed |= localize_file(config_contents, 'ref_gbff', workdir)
     if config_changed:
         config_rel = rewrite_config(config_contents, workdir)
     else:
@@ -159,7 +167,11 @@ def handle_build(args):
         print(f"\n{error}\n", file=sys.stderr)
         sys.exit(1)
     print(f"Running pipeline with config file: {args.config}")
-    config_contents = config.parse_config(args.config)
+    try:
+        config_contents = config.parse_config(args.config)
+    except (FileNotFoundError, PermissionError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     config_rel = localize_config(args.config, config_contents)
     workdir = config_contents['workdir']
     run_in_docker(workdir, config_rel, args.docker_image, args.update)

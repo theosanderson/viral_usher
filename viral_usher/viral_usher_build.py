@@ -84,6 +84,21 @@ def normalize_segment(segment):
     return segment
 
 
+def segment_from_gbff(gbff_path, acc):
+    """Search for segment in gbff's record for acc"""
+    segment = None
+    with open(gbff_path, 'r') as gbff_in:
+        for record in SeqIO.parse(gbff_in, 'genbank'):
+            if record.id == acc:
+                for feature in record.features:
+                    if "segment" in feature.qualifiers:
+                        segment = normalize_segment(feature.qualifiers["segment"][0])
+                        print(f"Found segment {segment} for {acc} in {gbff_path}")
+                        break
+                break
+    return segment
+
+
 def unpack_refseq_zip(refseq_zip, refseq_acc):
     """Extract and rename the fasta and gbff files from the RefSeq zip."""
     start_time = start_timing(f"Unpacking {refseq_zip}...")
@@ -111,18 +126,65 @@ def unpack_refseq_zip(refseq_zip, refseq_acc):
         if not gbff_found:
             raise ValueError(f"Failed to find .gbff file in {refseq_zip}.")
     # Search for segment in refseq.gbff's record for refseq_acc
-    segment = None
-    with open(gbff_path, 'r') as gbff_in:
-        for record in SeqIO.parse(gbff_in, 'genbank'):
-            if record.id == refseq_acc:
-                for feature in record.features:
-                    if "segment" in feature.qualifiers:
-                        segment = normalize_segment(feature.qualifiers["segment"][0])
-                        print(f"Found segment {segment} for {refseq_acc} in {gbff_path}")
-                        break
-                break
+    segment = segment_from_gbff(gbff_path, refseq_acc)
     finish_timing(start_time)
     return fasta_path, gbff_path, length, segment
+
+
+def check_ref_fasta_gbff(ref_fasta, ref_gbff):
+    """Make sure the given fasta and gbff files exist and contain exactly one sequence with the same accession.
+    Return (ref_acc, ref_length, ref_segment)"""
+    ref_acc = None
+    ref_length = 0
+    with open(ref_fasta, 'r') as fasta_in:
+        records = list(SeqIO.parse(fasta_in, 'fasta'))
+        if len(records) != 1:
+            print(f"Error: expected exactly one sequence in {ref_fasta}, found {len(records)}.", file=sys.stderr)
+            sys.exit(1)
+        ref_acc = records[0].id
+        ref_length = len(records[0].seq)
+    if not ref_acc:
+        print(f"Error: failed to find sequence in {ref_fasta}.", file=sys.stderr)
+        sys.exit(1)
+    # Check that the gbff has one record with the same accession
+    with open(ref_gbff, 'r') as gbff_in:
+        records = list(SeqIO.parse(gbff_in, 'genbank'))
+    if len(records) != 1:
+        print(f"Error: expected exactly one record in {ref_gbff}, found {len(records)}.", file=sys.stderr)
+        sys.exit(1)
+    if records[0].id != ref_acc:
+        print(f"Error: failed to find record with accession {ref_acc} in {ref_gbff}.", file=sys.stderr)
+        sys.exit(1)
+    segment = segment_from_gbff(ref_gbff, ref_acc)
+    return ref_acc, ref_length, segment
+
+
+def get_reference(config_contents, ncbi):
+    """Make sure config specifies either refseq_acc and refseq_assembly, or ref_fasta and ref_gbff, but not both.
+    If refseq_acc is given, download the RefSeq genome and annotations.  Otherwise make sure the given files exist.
+    Return (ref_acc, ref_fasta, ref_gbff, ref_length, ref_segment)"""
+    refseq_acc = config_contents.get('refseq_acc')
+    assembly_id = config_contents.get('refseq_assembly')
+    ref_fasta = config_contents.get('ref_fasta')
+    ref_gbff = config_contents.get('ref_gbff')
+    if refseq_acc:
+        # Download the RefSeq genome and annotations
+        refseq_zip = f"{refseq_acc}.zip"
+        start_time = start_timing(f"Downloading RefSeq {refseq_acc} (Assembly {assembly_id}) genome to {refseq_zip}...")
+        ncbi.download_refseq(assembly_id, refseq_zip)
+        finish_timing(start_time)
+        refseq_fasta, refseq_gbff, refseq_length, refseq_segment = unpack_refseq_zip(refseq_zip, refseq_acc)
+        return refseq_acc, refseq_fasta, refseq_gbff, refseq_length, refseq_segment
+    else:
+        # Use the user-provided reference genome and annotations; make sure the files are consistent
+        if not os.path.exists(ref_fasta):
+            print(f"Error: specified ref_fasta {ref_fasta} not found.", file=sys.stderr)
+            sys.exit(1)
+        if not os.path.exists(ref_gbff):
+            print(f"Error: specified ref_gbff {ref_gbff} not found.", file=sys.stderr)
+            sys.exit(1)
+        ref_acc, ref_length, ref_segment = check_ref_fasta_gbff(ref_fasta, ref_gbff)
+        return ref_acc, ref_fasta, ref_gbff, ref_length, ref_segment
 
 
 def scan_ncbi_virus_metadata(ncbi_virus_metadata):
@@ -143,7 +205,7 @@ def passes_seq_filter(record, length, max_N_proportion):
     return record.seq.count('N') / length <= max_N_proportion
 
 
-def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, acc_to_length_segment, refseq_segment, fasta_out_path):
+def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, acc_to_length_segment, ref_segment, fasta_out_path):
     # Filter fasta file and chop descriptions to get accession as name in nextclade
     start_time = start_timing(f"Filtering GenBank sequences by length >= {min_length} and proportion of Ns <= {max_N_proportion}...")
     record_count = 0
@@ -153,8 +215,8 @@ def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, 
         (length, segment) = acc_to_length_segment.get(record.id, (0, None))
         if length == 0:
             length = len(record.seq)
-        # Skip if segment is given but is different from refseq_segment or sequence is shorter than min_length
-        if length < min_length or (segment and segment != refseq_segment):
+        # Skip if segment is given but is different from ref_segment or sequence is shorter than min_length
+        if length < min_length or (segment and segment != ref_segment):
             continue
         # Filter by proportion of ambiguous characters
         if not passes_seq_filter(record, length, max_N_proportion):
@@ -168,7 +230,7 @@ def filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, 
     return record_count, passed_count
 
 
-def unpack_genbank_zip(genbank_zip, acc_to_length_segment, min_length, max_N_proportion, refseq_segment):
+def unpack_genbank_zip(genbank_zip, acc_to_length_segment, min_length, max_N_proportion, ref_segment):
     """Process the fasta and data_report.jsonl files from the GenBank zip,
     filtering the fasta by length and proportion of ambiguous characters and
     keeping only the accession part of sequence names, and extracting basic
@@ -181,7 +243,7 @@ def unpack_genbank_zip(genbank_zip, acc_to_length_segment, min_length, max_N_pro
         if len(genomic_fna_paths) != 1:
             raise ValueError(f"Expected exactly one genomic.fna file in {genbank_zip}, found: {genomic_fna_paths}")
         with io.TextIOWrapper(zip_ref.open(genomic_fna_paths[0], 'r'), encoding='utf-8') as fasta_in, lzma.open(fasta_out_path, 'wt') as fasta_out:
-            genbank_count, passed_count = filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, acc_to_length_segment, refseq_segment, fasta_out_path)
+            genbank_count, passed_count = filter_genbank_sequences(fasta_in, fasta_out, min_length, max_N_proportion, acc_to_length_segment, ref_segment, fasta_out_path)
     return fasta_out_path, genbank_count, passed_count
 
 
@@ -213,16 +275,16 @@ def sanitize_name(name):
     return name
 
 
-def align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion):
+def align_sequences(ref_fasta, extra_fasta, genbank_fasta, ref_acc, min_length, max_N_proportion):
     """Run nextclade to align the filtered sequences to the reference, and pipe its output to faToVcf and gzip."""
     msa_vcf_gz = 'msa.vcf.gz'
     nextclade_err_txt = 'nextclade.align.err.log'
     start_time = start_timing(f"Aligning sequences with nextclade and converting to VCF, writing to {msa_vcf_gz}...")
     # Set up the pipeline: | nextclade | faToVcf | gzip > msa.vcf.gz
     nextclade_cmd = [
-        'nextclade', 'run', '--input-ref', refseq_fasta, '--include-reference', 'true', '--output-fasta', '/dev/stdout'
+        'nextclade', 'run', '--input-ref', ref_fasta, '--include-reference', 'true', '--output-fasta', '/dev/stdout'
     ]
-    fatovcf_cmd = ['faToVcf', '-includeNoAltN', '-ref=' + refseq_acc, 'stdin', 'stdout']
+    fatovcf_cmd = ['faToVcf', '-includeNoAltN', '-ref=' + ref_acc, 'stdin', 'stdout']
     with gzip.open(msa_vcf_gz, 'wb') as vcf_out, open(nextclade_err_txt, 'wb') as nextclade_stderr:
         try:
             # Start nextclade
@@ -372,7 +434,7 @@ def get_existing_nextclade_assignments(update, starting_tree_accessions, nextcla
     return existing_assignments, existing_column_count
 
 
-def run_nextclade(nextclade_path, nextclade_clade_columns, existing_nextclade_assignments, existing_column_count, genbank_fasta, extra_fasta, refseq_fasta):
+def run_nextclade(nextclade_path, nextclade_clade_columns, existing_nextclade_assignments, existing_column_count, genbank_fasta, extra_fasta, ref_fasta):
     """Run nextclade to assign sequences to clades.  Return dict mapping accession to clade."""
     if not nextclade_path:
         return {}, ""
@@ -389,7 +451,7 @@ def run_nextclade(nextclade_path, nextclade_clade_columns, existing_nextclade_as
                '--dataset-name', nextclade_path,
                '--output-columns-selection', output_columns,
                '--output-tsv', nextclade_tsv,
-               genbank_fasta, refseq_fasta]
+               genbank_fasta, ref_fasta]
     if extra_fasta:
         command.append(extra_fasta)
     run_command(command, stdout_filename='nextclade.clade.out.log', stderr_filename='nextclade.clade.err.log')
@@ -494,13 +556,13 @@ def get_nextclade_column_list(nextclade_clade_columns):
     return nextclade_col_list
 
 
-def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clade_columns, refseq_segment, sample_names):
+def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clade_columns, ref_segment, sample_names):
     """Make a file for renaming sequence names in tree to include country, isolate name and date when available.
     Prepare metadata for taxonium."""
     rename_out = "rename.tsv"
     metadata_out = "metadata.tsv.gz"
     start_time = start_timing(f"Finalizing sequence names for display and metadata, writing to {metadata_out}...")
-    remove_segment = not refseq_segment
+    remove_segment = not ref_segment
     date_min = None
     date_max = None
     # Use a subprocess to get input from grep -Fwf {sample_names} {ncbi_virus_metadata}
@@ -520,7 +582,7 @@ def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clad
         # Rename 'strain' to 'gb_strain' because I add 'strain' at the beginning below, following the
         # nextstrain convention of 'strain' meaning the full descriptor
         header_mod[header_mod.index('strain')] = 'gb_strain'
-        # Remove 'segment' if refseq has no segment
+        # Remove 'segment' if ref has no segment
         segment_idx = header_mod.index('segment')
         if remove_segment:
             header_mod.pop(segment_idx)
@@ -614,15 +676,15 @@ def make_taxonium_config(date_min, date_max, nextclade_clade_columns):
     return config_out
 
 
-def usher_to_taxonium(pb_in, metadata_in, refseq_gbff, tip_count, species, refseq_acc, date_min, date_max, nextclade_clade_columns):
+def usher_to_taxonium(pb_in, metadata_in, ref_gbff, tip_count, species, ref_acc, date_min, date_max, nextclade_clade_columns):
     jsonl_out = "tree.jsonl.gz"
     start_time = start_timing(f"Running usher_to_taxonium to make {jsonl_out}...")
     columns = ','.join(get_header(metadata_in))
-    title = f"{tip_count} {species} sequences from GenBank aligned to {refseq_acc}"
+    title = f"{tip_count} {species} sequences from GenBank aligned to {ref_acc}"
     config = make_taxonium_config(date_min, date_max, nextclade_clade_columns)
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
                '--columns', columns, '--title', title, '--config_json', config,
-               '--genbank', refseq_gbff, '--output', jsonl_out]
+               '--genbank', ref_gbff, '--output', jsonl_out]
     if not run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log', fail_ok=True):
         finish_timing(start_time)
         start_time = start_timing("usher_to_taxonium failed with --genbank, trying again without --genbank...")
@@ -634,9 +696,9 @@ def usher_to_taxonium(pb_in, metadata_in, refseq_gbff, tip_count, species, refse
     return jsonl_out
 
 
-def write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count):
-    output_stats = [["refseq_acc", "refseq_length", "gb_count", "filtered_count", "aligned_count", "tree_tip_count"],
-                    [refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count]]
+def write_output_stats(ref_acc, ref_length, gb_count, filtered_count, aligned_count, tree_tip_count):
+    output_stats = [["ref_acc", "ref_length", "gb_count", "filtered_count", "aligned_count", "tree_tip_count"],
+                    [ref_acc, ref_length, gb_count, filtered_count, aligned_count, tree_tip_count]]
     print("Writing output stats to output_stats.tsv.")
     with open("output_stats.tsv", "w") as f:
         for row in output_stats:
@@ -656,11 +718,11 @@ def get_tree_names(pb_in):
     return tree_names
 
 
-def find_new_accessions(tree_names, acc_to_length_segment, min_length, refseq_segment):
+def find_new_accessions(tree_names, acc_to_length_segment, min_length, ref_segment):
     """Return a list of GenBank accessions in acc_to_length_segment that are not in the current tree and probably wouldn't be filtered later."""
     all_accessions = set(acc_to_length_segment.keys())
-    # Exclude accessions whose metadata has a segment that is different from RefSeq
-    exclude_accessions = {acc for acc, (length, seg) in acc_to_length_segment.items() if length < min_length or seg and seg != refseq_segment}
+    # Exclude accessions whose metadata has a segment that is different from ref's
+    exclude_accessions = {acc for acc, (length, seg) in acc_to_length_segment.items() if length < min_length or seg and seg != ref_segment}
     new_accessions = all_accessions - tree_names - exclude_accessions
     return list(new_accessions)
 
@@ -690,7 +752,7 @@ def get_new_extra_fasta(tree_names, extra_fasta):
 
 
 def run_nextclade_on_existing(ncbi, starting_tree_accessions, nextclade_path, nextclade_clade_columns,
-                              extra_fasta, refseq_fasta):
+                              extra_fasta, ref_fasta):
     """Download GenBank sequences that are already in the tree.  Run nextclade on those plus extra_fasta."""
     old_genbank_zip = "genbank_old.zip"
     start_time = start_timing("Downloading and unpacking GenBank genomes that were already in the tree, for nextclade...")
@@ -698,7 +760,7 @@ def run_nextclade_on_existing(ncbi, starting_tree_accessions, nextclade_path, ne
     old_genbank_fasta, _, _ = unpack_genbank_zip(old_genbank_zip, {}, 0, 1.0, "")
     finish_timing(start_time)
     print("Running nextclade on genomes that were already in the tree.")
-    run_nextclade(nextclade_path, nextclade_clade_columns, {}, None, old_genbank_fasta, extra_fasta, refseq_fasta)
+    run_nextclade(nextclade_path, nextclade_clade_columns, {}, None, old_genbank_fasta, extra_fasta, ref_fasta)
     os.remove(old_genbank_zip)
     if not os.path.exists(update_nextclade_input):
         print(f"Expected {update_nextclade_input} to be created but it's not found.", sys.stderr)
@@ -715,8 +777,6 @@ def main():
 
     print(f"Running pipeline with config file: {args.config}")
     config_contents = config.parse_config(args.config)
-    refseq_acc = config_contents['refseq_acc']
-    assembly_id = config_contents['refseq_assembly']
     taxid = config_contents['taxonomy_id']
     nextclade_path = config_contents.get('nextclade_dataset', '')
     nextclade_clade_columns = config_contents.get('nextclade_clade_columns', 'clade')
@@ -726,20 +786,15 @@ def main():
     max_branch_length = int(config_contents.get('max_branch_length', str(config.DEFAULT_MAX_BRANCH_LENGTH)))
     extra_fasta = config_contents.get('extra_fasta', '')
     species = config_contents.get('species', None)
+    ncbi = ncbi_helper.NcbiHelper()
     if not species:
-        start_time = start_timing(f"Looking up species name for RefSeq {refseq_acc}...")
-        species, _ = ncbi_helper.NcbiHelper().get_species_taxid_for_refseq(refseq_acc)
+        start_time = start_timing(f"Looking up species name for Taxonomy ID {taxid}...")
+        species = ncbi.get_species_from_taxid(taxid)
         finish_timing(start_time)
-    refseq_zip = f"{refseq_acc}.zip"
     genbank_zip = f"genbank_{taxid}.zip"
 
-    # Download the RefSeq genome and annotations
-    ncbi = ncbi_helper.NcbiHelper()
-    start_time = start_timing(f"Downloading RefSeq {refseq_acc} (Assembly {assembly_id}) genome to {refseq_zip}...")
-    ncbi.download_refseq(assembly_id, refseq_zip)
-    finish_timing(start_time)
-    refseq_fasta, refseq_gbff, refseq_length, refseq_segment = unpack_refseq_zip(refseq_zip, refseq_acc)
-    min_length = int(refseq_length * min_length_proportion)
+    ref_acc, ref_fasta, ref_gbff, ref_length, ref_segment = get_reference(config_contents, ncbi)
+    min_length = int(ref_length * min_length_proportion)
 
     starting_tree_accessions = []
     if (args.update):
@@ -751,7 +806,7 @@ def main():
         if nextclade_path and not os.path.exists(update_nextclade_input) and not os.path.exists(update_nextclade_input + ".gz"):
             print(f"No existing {update_nextclade_input} found; recreating it.")
             run_nextclade_on_existing(ncbi, starting_tree_accessions, nextclade_path, nextclade_clade_columns,
-                                      extra_fasta, refseq_fasta)
+                                      extra_fasta, ref_fasta)
 
     # Get metadata from NCBI Virus API
     start_time = start_timing(f"Querying NCBI Virus API for metadata for all GenBank sequences for taxid {taxid}...")
@@ -763,7 +818,7 @@ def main():
     # Download GenBank genomes for the given Taxonomy ID: only the new ones if --update, otherwise all of them
     got_genbank = False
     if (args.update):
-        new_accessions = find_new_accessions(starting_tree_accessions, acc_to_length_segment, min_length, refseq_segment)
+        new_accessions = find_new_accessions(starting_tree_accessions, acc_to_length_segment, min_length, ref_segment)
         if len(new_accessions) > 0:
             start_time = start_timing(f"Downloading {len(new_accessions)} new GenBank genomes for taxid {taxid} to {genbank_zip}...")
             ncbi.download_genbank_accessions(new_accessions, genbank_zip)
@@ -778,14 +833,14 @@ def main():
         got_genbank = True
         finish_timing(start_time)
     if got_genbank:
-        genbank_fasta, gb_count, filtered_count = unpack_genbank_zip(genbank_zip, acc_to_length_segment, min_length, max_N_proportion, refseq_segment)
+        genbank_fasta, gb_count, filtered_count = unpack_genbank_zip(genbank_zip, acc_to_length_segment, min_length, max_N_proportion, ref_segment)
     else:
         genbank_fasta = "/dev/null"
         gb_count = 0
         filtered_count = 0
 
     # The core of the pipeline: align sequences, build tree, finalize metadata
-    msa_vcf, aligned_count = align_sequences(refseq_fasta, extra_fasta, genbank_fasta, refseq_acc, min_length, max_N_proportion)
+    msa_vcf, aligned_count = align_sequences(ref_fasta, extra_fasta, genbank_fasta, ref_acc, min_length, max_N_proportion)
     if args.update:
         if aligned_count == 0:
             preopt_tree = "usher_sampled.pb.gz"
@@ -800,13 +855,13 @@ def main():
     existing_nextclade_assignments, existing_column_count = get_existing_nextclade_assignments(args.update, starting_tree_accessions, nextclade_path)
     nextclade_assignments, nextclade_clade_columns = run_nextclade(nextclade_path, nextclade_clade_columns,
                                                                    existing_nextclade_assignments, existing_column_count,
-                                                                   genbank_fasta, extra_fasta, refseq_fasta)
+                                                                   genbank_fasta, extra_fasta, ref_fasta)
     metadata_tsv, rename_tsv, date_min, date_max = finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clade_columns,
-                                                                     refseq_segment, sample_names)
+                                                                     ref_segment, sample_names)
     viz_tree = rename_seqs(opt_tree, rename_tsv)
     dump_newick(viz_tree)
-    write_output_stats(refseq_acc, refseq_length, gb_count, filtered_count, aligned_count, tree_tip_count)
-    usher_to_taxonium(viz_tree, metadata_tsv, refseq_gbff, tree_tip_count, species, refseq_acc, date_min, date_max, nextclade_clade_columns)
+    write_output_stats(ref_acc, ref_length, gb_count, filtered_count, aligned_count, tree_tip_count)
+    usher_to_taxonium(viz_tree, metadata_tsv, ref_gbff, tree_tip_count, species, ref_acc, date_min, date_max, nextclade_clade_columns)
 
 
 if __name__ == "__main__":

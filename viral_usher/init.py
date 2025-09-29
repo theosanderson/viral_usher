@@ -373,7 +373,7 @@ def get_workdir(args_workdir, is_interactive):
 
 
 def make_config(config_contents, workdir, refseq_id, taxid, args_config, is_interactive):
-    config_path_default = f"{workdir}/viral_usher_config_{refseq_id}_{taxid}.toml"
+    config_path_default = f"{workdir}/viral_usher_config_{refseq_id}_{taxid}.toml" if refseq_id else f"{workdir}/viral_usher_config_{taxid}.toml"
     if args_config:
         config_path = args_config
         if not check_write_config(config_contents, config_path):
@@ -401,6 +401,9 @@ def handle_init(args):
     ncbi = ncbi_helper.NcbiHelper()
     # First sort out the interdependent refseq and taxonomy id options.
     if args.refseq:
+        if args.ref_fasta or args.ref_gbff:
+            print("Error: --refseq cannot be used together with --ref_fasta or --ref_gbff", file=sys.stderr)
+            sys.exit(1)
         refseq_id = args.refseq
         assembly_id = ncbi.get_assembly_acc_for_refseq_acc(refseq_id)
         if not assembly_id:
@@ -426,6 +429,33 @@ def handle_init(args):
                 # TODO: it's not a problem if the two taxids have an ancestor-descendant relationship -- look it up.
                 print(f"\nNOTE: RefSeq ID {refseq_id} is associated with species-level Taxonomy ID {taxid}, not the provided Taxonomy ID {args.taxonomy_id}.\n")
                 taxid = args.taxonomy_id
+    elif args.ref_fasta or args.ref_gbff:
+        if args.refseq:
+            print("Error: --refseq cannot be used together with --ref_fasta or --ref_gbff", file=sys.stderr)
+            sys.exit(1)
+        if not args.ref_fasta or not args.ref_gbff:
+            print("Error: both --ref_fasta and --ref_gbff must be provided when not using --refseq", file=sys.stderr)
+            sys.exit(1)
+        refseq_id = ''
+        assembly_id = ''
+        ok, error_message = check_optional_file_readable(args.ref_fasta)
+        if not ok:
+            print(f"{error_message}\nPlease try again with a different file for --ref_fasta.", file=sys.stderr)
+            sys.exit(1)
+        ok, error_message = check_optional_file_readable(args.ref_gbff)
+        if not ok:
+            print(f"{error_message}\nPlease try again with a different file for --ref_gbff.", file=sys.stderr)
+            sys.exit(1)
+        taxid = args.taxonomy_id
+        if not taxid:
+            print("Error: when using --ref_fasta and --ref_gbff, -t/--taxonomy_id must be provided", file=sys.stderr)
+            sys.exit(1)
+        species = args.species
+        if not species:
+            species = ncbi.get_species_from_taxid(taxid)
+            if not species:
+                print(f"Could not find species for Taxonomy ID {taxid}.  Please provide a species name with --species.", file=sys.stderr)
+                sys.exit(1)
     else:
         if args.taxonomy_id:
             species, taxid, refseq_id, assembly_id = lookup_refseq(ncbi, args.species, [], args.taxonomy_id)
@@ -435,8 +465,8 @@ def handle_init(args):
             species, taxid, refseq_id, assembly_id = get_species_taxonomy_refseq(ncbi)
         taxid = ncbi.get_species_level_taxid(taxid)
 
-    # If --refseq and --workdir are given then accept defaults for other options
-    is_interactive = not (args.refseq and args.workdir)
+    # If --refseq/--ref_fasta and --workdir are given then accept defaults for other options
+    is_interactive = not ((args.refseq or args.ref_fasta) and args.workdir)
 
     nextclade_path, nextclade_columns = get_nextclade_path_columns(args.nextclade_dataset, species, is_interactive)
     min_length_proportion = get_min_length_proportion(args.min_length_proportion, is_interactive)
@@ -451,6 +481,8 @@ def handle_init(args):
         "viral_usher_version": viral_usher_version,
         "refseq_acc": refseq_id,
         "refseq_assembly": assembly_id,
+        "ref_fasta": args.ref_fasta if args.ref_fasta else "",
+        "ref_gbff": args.ref_gbff if args.ref_gbff else "",
         "species": species,
         "taxonomy_id": taxid,
         "nextclade_dataset": nextclade_path,

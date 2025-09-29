@@ -203,6 +203,14 @@ class NcbiHelper:
             taxid = assembly_record.get("taxid")
         return species, taxid
 
+    def get_species_from_taxid(self, taxid):
+        """Return the species name for a given Taxonomy ID using the NCBI EUtils API."""
+        tax_record = self.esummary_request_one("taxonomy", taxid)
+        if not tax_record:
+            self.logger.warning(f"No taxonomy record for Taxonomy ID {taxid}")
+            return None
+        return tax_record.get("scientificname")
+
     def download_zip_file(self, url, filename):
         """Download a zip file from the given URL and save it to the specified filename."""
         headers = {"accept": "application/zip"}
