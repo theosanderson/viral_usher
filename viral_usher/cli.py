@@ -22,6 +22,8 @@ def main():
     init_parser.add_argument("-t", "--taxonomy_id", help="NCBI Taxonomy ID of the viral species, if known")
     init_parser.add_argument("-s", "--species", help="Viral species name (if Taxonomy ID is not known)")
     init_parser.add_argument("-f", "--fasta", help="Additional sequences to include in tree")
+    init_parser.add_argument("-m", "--metadata", help="Metadata file (TSV): first column must match names in FASTA file)")
+    init_parser.add_argument("--metadata_date_column", help="Column in metadata file containing sequence collection date (default: look for 'date')")
     init_parser.add_argument("-x", "--nextclade_dataset", help="Nextclade dataset path (e.g. 'nextstrain/dengue/all') (default: auto-detect)")
     init_parser.add_argument("-l", "--min_length_proportion", type=float, help=f"Minimum proportion of RefSeq length to require for GenBank sequences (default: {config.DEFAULT_MIN_LENGTH_PROPORTION})")
     init_parser.add_argument("-n", "--max_N_proportion", type=float, help=f"Maximum proportion of N bases to allow in GenBank sequences (default: {config.DEFAULT_MAX_N_PROPORTION})")

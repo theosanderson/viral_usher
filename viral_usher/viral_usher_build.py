@@ -502,6 +502,48 @@ def run_nextclade(nextclade_path, nextclade_clade_columns, existing_nextclade_as
     return nextclade_assignments, nextclade_clade_columns
 
 
+def get_extra_metadata(extra_metadata):
+    """If extra_metadata is given, parse it and return its header columns (skip the first which must be the name,
+    matching the names in extra_fasta) and a dict mapping sanitized sequence name from the first column to its row
+    (skipping the first column)."""
+    if not extra_metadata:
+        return [], {}
+    extra_metadata_cols = []
+    extra_metadata_dict = {}
+    with open(extra_metadata, 'r') as em:
+        header = em.readline().rstrip('\n').split('\t')
+        extra_metadata_cols = header[1:]
+        for line in em:
+            fields = line.rstrip('\n').split('\t')
+            name = sanitize_name(fields[0])
+            extra_metadata_dict[name] = {k: v for k, v in zip(header[1:], fields[1:])}
+    return extra_metadata_cols, extra_metadata_dict
+
+
+def analyze_extra_columns(extra_metadata_cols, header, extra_metadata_date_column):
+    """If extra metadata columns are given, try to match them to NCBI metadata columns; return a list of leftovers
+    and a dict mapping matched column name to NCBI column name."""
+    extra_added_cols = []
+    extra_mapped_cols = {}
+    if not extra_metadata_cols:
+        return extra_added_cols, extra_mapped_cols
+    header_set = set(header)
+    if 'country_location' in header_set:
+        header_set.add('country')
+        header_set.add('location')
+        header_set.remove('country_location')
+    for col in extra_metadata_cols:
+        if col == extra_metadata_date_column:
+            extra_mapped_cols['date'] = col
+        elif col in header_set:
+            extra_mapped_cols[col] = col
+        else:
+            extra_added_cols.append(col)
+    if extra_added_cols:
+        print(f"Note: the following extra metadata columns were not found in NCBI metadata and will be added as new columns: {', '.join(extra_added_cols)}", file=sys.stderr)
+    return extra_added_cols, extra_mapped_cols
+
+
 def get_numerical_date(date):
     """Date should be YYYY-MM-DD or YYYY-MM or YYYY.  Return year.fraction"""
     if not date:
@@ -574,7 +616,7 @@ NcbiMetadataIndex = namedtuple('NcbiMetadataIndex',
                                ['accession', 'isolate', 'strain', 'date', 'country_location', 'segment'])
 
 
-def make_metadata_header(ncbi_header, nextclade_clade_columns, remove_segment, extra_fasta_names):
+def make_metadata_header(ncbi_header, nextclade_clade_columns, remove_segment, extra_fasta_names, extra_added_cols):
     """Make the metadata header line.  Return an index into the NCBI metadata columns and the number of added nextclade columns."""
     accession_idx = ncbi_header.index('accession')
     isolate_idx = ncbi_header.index('isolate')
@@ -599,12 +641,15 @@ def make_metadata_header(ncbi_header, nextclade_clade_columns, remove_segment, e
     if extra_fasta_names is not None:
         # Add a column indicating the source of the sequence: GenBank or user-provided extra fasta
         metadata_header += '\tsource'
+    if extra_added_cols:
+        metadata_header += '\t' + '\t'.join(extra_added_cols)
+    metadata_header += '\n'
     midx = NcbiMetadataIndex(accession=accession_idx, isolate=isolate_idx, strain=strain_idx, date=date_idx,
                              country_location=country_loc_idx, segment=segment_idx)
     return metadata_header, midx, len(nextclade_col_list)
 
 
-def make_metadata_and_rename(row, midx, remove_segment, nextclade_assignments, nextclade_col_count, extra_fasta_names):
+def make_metadata_and_rename(row, midx, remove_segment, nextclade_assignments, nextclade_col_count, extra_fasta_names, extra_added_col_count):
     """Make a metadata line from the given NCBI metadata row and nextclade clades, and a renaming line.  Also return numerical date."""
     accession = row[midx.accession].strip()
     isolate = sanitize_name(row[midx.isolate].strip())
@@ -633,12 +678,61 @@ def make_metadata_and_rename(row, midx, remove_segment, nextclade_assignments, n
     if extra_fasta_names is not None:
         # All of these are from GenBank
         metadata_line += '\tGenBank'
+    if extra_added_col_count > 0:
+        metadata_line += '\t' + '\t'.join([''] * extra_added_col_count)
     metadata_line += '\n'
     rename_line = "\t".join([accession, name]) + '\n'
     return metadata_line, rename_line, name, num_date
 
 
-def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clade_columns, ref_segment, sample_names, extra_fasta_names):
+def add_extra_metadata_rows(m_out, metadata_header, sample_names, nextclade_assignments, nextclade_col_count,
+                            extra_fasta_names, extra_added_cols, extra_mapped_cols, extra_metadata_rows):
+    """Add metadata lines for user-provided extra fasta sequences that are in the tree (i.e. in sample_names)."""
+    if not extra_fasta_names:
+        return
+    sample_names_set = set()
+    with open(sample_names, 'r') as sn:
+        for line in sn:
+            sample_names_set.add(line.strip())
+    # For each name in extra_fasta_names that is in sample_names_set (i.e. in the tree), add a metadata line:
+    # Name, followed by empty (or merged if user-provided) fields for all NCBI-derived metadata columns prior
+    # to nextclade clades, then nextclade clades if any, then 'user-provided' in source column, then extra
+    # user-provided metadata columns if any.
+    metadata_header_cols = metadata_header.rstrip('\n').split('\t')
+    ncbi_col_count = len(metadata_header_cols) - 1 - nextclade_col_count - 1 - len(extra_added_cols)
+    for name in extra_fasta_names:
+        if name not in sample_names_set:
+            continue
+        metadata = name
+        if extra_mapped_cols:
+            row = extra_metadata_rows.get(name, {})
+            for col in metadata_header_cols[1:1+ncbi_col_count]:
+                if col in extra_mapped_cols and extra_mapped_cols[col] in row:
+                    metadata += '\t' + row[extra_mapped_cols[col]]
+                else:
+                    metadata += '\t'
+        else:
+            metadata += '\t' + '\t'.join([''] * ncbi_col_count)
+        if nextclade_col_count > 0:
+            if name in nextclade_assignments:
+                clades = nextclade_assignments[name]
+            else:
+                clades = [''] * nextclade_col_count
+            metadata += '\t' + '\t'.join(clades)
+        metadata += '\tuser-provided'
+        if extra_added_cols:
+            row = extra_metadata_rows.get(name, {})
+            for col in extra_added_cols:
+                if col in row:
+                    metadata += '\t' + row[col]
+                else:
+                    metadata += '\t'
+        metadata += '\n'
+        m_out.write(metadata)
+
+
+def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clade_columns, ref_segment, sample_names,
+                      extra_fasta_names, extra_metadata, extra_metadata_date_column):
     """Make a file for renaming sequence names in tree to include country, isolate name and date when available.
     Prepare metadata for taxonium."""
     rename_out = "rename.tsv"
@@ -647,23 +741,25 @@ def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clad
     remove_segment = not ref_segment
     date_min = None
     date_max = None
+    extra_metadata_cols, extra_metadata_rows = get_extra_metadata(extra_metadata)
     # Read header from ncbi_virus_metadata and add header columns if applicable
     with open(ncbi_virus_metadata, 'rt') as csv_in:
         header = csv_in.readline().rstrip('\n').split(',')
+    extra_added_cols, extra_mapped_cols = analyze_extra_columns(extra_metadata_cols, header, extra_metadata_date_column)
     metadata_header, midx, nextclade_col_count = make_metadata_header(header, nextclade_clade_columns, remove_segment,
-                                                                      extra_fasta_names)
+                                                                      extra_fasta_names, extra_added_cols)
     # Use a subprocess to get input from grep -Fwf {sample_names} {ncbi_virus_metadata}
     grep_cmd = ['grep', '-Fwf', sample_names, ncbi_virus_metadata]
     with subprocess.Popen(grep_cmd, stdout=subprocess.PIPE, text=True) as grep_proc, \
             open(rename_out, 'w') as r_out, gzip.open(metadata_out, 'wt') as m_out:
         # No header for rename_out; write header for metadata_out
-        m_out.write(metadata_header + '\n')
+        m_out.write(metadata_header)
 
         # Process filtered lines from grep
         reader = csv.reader(grep_proc.stdout, delimiter=',')
         for row in reader:
             metadata, rename, name, num_date = make_metadata_and_rename(row, midx, remove_segment, nextclade_assignments,
-                                                                        nextclade_col_count, extra_fasta_names)
+                                                                        nextclade_col_count, extra_fasta_names, len(extra_added_cols))
             if num_date is not None:
                 if date_min is None or num_date < date_min:
                     date_min = num_date
@@ -673,27 +769,8 @@ def finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clad
             r_out.write(rename)
             m_out.write(metadata)
         # Add metadata lines for user-provided extra fasta sequences
-        if extra_fasta_names is not None:
-            sample_names_set = set()
-            with open(sample_names, 'r') as sn:
-                for line in sn:
-                    sample_names_set.add(line.strip())
-            # For each name in extra_fasta_names that is in sample_names_set (i.e. in the tree), add a metadata line:
-            # Name, followed by empty fields for all NCBI-derived metadata columns prior to nextclade clades,
-            # then nextclade clades if any, then 'user-provided' in source column
-            empty_col_count = len(metadata_header.split('\t')) - 1 - nextclade_col_count - 1  # -1 for name column, -1 for source column
-            for name in extra_fasta_names:
-                if name in sample_names_set:
-                    metadata = name + '\t' + '\t'.join([''] * empty_col_count)
-                    if nextclade_col_count > 0:
-                        if name in nextclade_assignments:
-                            clades = nextclade_assignments[name]
-                        else:
-                            clades = [''] * nextclade_col_count
-                        metadata += '\t' + '\t'.join(clades)
-                    metadata += '\tuser-provided\n'
-                    m_out.write(metadata)
-
+        add_extra_metadata_rows(m_out, metadata_header, sample_names, nextclade_assignments, nextclade_col_count,
+                                extra_fasta_names, extra_added_cols, extra_mapped_cols, extra_metadata_rows)
     finish_timing(start_time)
     return metadata_out, rename_out, date_min, date_max
 
@@ -854,6 +931,8 @@ def main():
     max_parsimony = int(config_contents.get('max_parsimony', str(config.DEFAULT_MAX_PARSIMONY)))
     max_branch_length = int(config_contents.get('max_branch_length', str(config.DEFAULT_MAX_BRANCH_LENGTH)))
     extra_fasta = config_contents.get('extra_fasta', '')
+    extra_metadata = config_contents.get('extra_metadata', '')
+    extra_metadata_date_column = config_contents.get('extra_metadata_date_column', '')
     species = config_contents.get('species', None)
     ncbi = ncbi_helper.NcbiHelper()
     if not species:
@@ -928,7 +1007,8 @@ def main():
                                                                    existing_nextclade_assignments, existing_column_count,
                                                                    genbank_fasta, extra_fasta, ref_fasta)
     metadata_tsv, rename_tsv, date_min, date_max = finalize_metadata(ncbi_virus_metadata, nextclade_assignments, nextclade_clade_columns,
-                                                                     ref_segment, sample_names, extra_fasta_names)
+                                                                     ref_segment, sample_names, extra_fasta_names, extra_metadata,
+                                                                     extra_metadata_date_column)
     viz_tree = rename_seqs(opt_tree, rename_tsv)
     dump_newick(viz_tree)
     write_output_stats(ref_acc, ref_length, gb_count, filtered_count, aligned_count, tree_tip_count)

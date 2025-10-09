@@ -350,7 +350,7 @@ def get_max_branch_length(args_max_branch_length, is_interactive):
 def get_user_fasta(args_fasta, is_interactive):
     fasta = ''
     if args_fasta is not None:
-        fasta = args_fasta
+        fasta = os.path.abspath(args_fasta)
         ok, error_message = check_optional_file_readable(fasta)
         if not ok:
             print(f"{error_message}\nPlease try again with a different file for --fasta.", file=sys.stderr)
@@ -358,6 +358,27 @@ def get_user_fasta(args_fasta, is_interactive):
     elif is_interactive:
         fasta = prompt_with_checker("If you have your own fasta file, then enter its path", "", check_optional_file_readable)
     return fasta
+
+
+def get_user_metadata(args_metadata, args_metadata_date_column, is_interactive):
+    metadata_path = ''
+    metadata_date_column = ''
+    if args_metadata:
+        metadata_path = os.path.abspath(args_metadata)
+        ok, error_message = check_optional_file_readable(metadata_path)
+        if not ok:
+            print(f"{error_message}\nPlease try again with a different file for --metadata.", file=sys.stderr)
+            sys.exit(1)
+        if args_metadata_date_column:
+            metadata_date_column = args_metadata_date_column
+    elif args_metadata_date_column:
+        print("Error: --metadata_date_column cannot be used without --metadata", file=sys.stderr)
+        sys.exit(1)
+    elif is_interactive:
+        metadata_path = prompt_with_checker("If you have your own metadata file (TSV) whose first column matches names in the FASTA file, then enter its path", "", check_optional_file_readable)
+        metadata_date_column = prompt_with_checker("If your metadata file has a column with sequence collection dates, enter its name (otherwise leave blank to look for a column named 'date')", "", lambda x: (True, None))
+    return metadata_path, metadata_date_column
+
 
 
 def get_workdir(args_workdir, is_interactive):
@@ -474,6 +495,7 @@ def handle_init(args):
     max_parsimony = get_max_parsimony(args.max_parsimony, is_interactive)
     max_branch_length = get_max_branch_length(args.max_branch_length, is_interactive)
     fasta = get_user_fasta(args.fasta, is_interactive)
+    metadata, metadata_date_column = get_user_metadata(args.metadata, args.metadata_date_column, is_interactive)
     workdir = get_workdir(args.workdir, is_interactive)
 
     viral_usher_version = importlib.metadata.version('viral_usher')
@@ -492,6 +514,8 @@ def handle_init(args):
         "max_parsimony": max_parsimony,
         "max_branch_length": max_branch_length,
         "extra_fasta": fasta,
+        "extra_metadata": metadata,
+        "extra_metadata_date_column": metadata_date_column,
         "workdir": os.path.abspath(workdir),
     }
     config_path = make_config(config_contents, workdir, refseq_id, taxid, args.config, is_interactive)
