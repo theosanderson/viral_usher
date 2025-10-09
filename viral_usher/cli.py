@@ -22,7 +22,7 @@ def main():
     init_parser.add_argument("-t", "--taxonomy_id", help="NCBI Taxonomy ID of the viral species, if known")
     init_parser.add_argument("-s", "--species", help="Viral species name (if Taxonomy ID is not known)")
     init_parser.add_argument("-f", "--fasta", help="Additional sequences to include in tree")
-    init_parser.add_argument("-m", "--metadata", help="Metadata file (TSV): first column must match names in FASTA file)")
+    init_parser.add_argument("-m", "--metadata", help="Metadata file (TSV): first column must match names in --fasta file)")
     init_parser.add_argument("--metadata_date_column", help="Column in metadata file containing sequence collection date (default: look for 'date')")
     init_parser.add_argument("-x", "--nextclade_dataset", help="Nextclade dataset path (e.g. 'nextstrain/dengue/all') (default: auto-detect)")
     init_parser.add_argument("-l", "--min_length_proportion", type=float, help=f"Minimum proportion of RefSeq length to require for GenBank sequences (default: {config.DEFAULT_MIN_LENGTH_PROPORTION})")
@@ -38,6 +38,7 @@ def main():
     build_parser = subparsers.add_parser("build", help="Run the pipeline to download sequences and build a tree")
     build_parser.add_argument("-c", "--config", type=str, required=True, help="Path to config file input")
     build_parser.add_argument("-d", "--docker_image", type=str, help=f"Use this docker image instead of docker.io/{config.DEFAULT_DOCKER_IMAGE}")
+    build_parser.add_argument("-n", "--no_genbank", action="store_true", help="Do not download sequences from GenBank; build tree using only sequences in extra_fasta")
     build_parser.add_argument("-u", "--update", action="store_true", help="Update an existing tree with new sequences (requires optimized.pb.gz tree from previous build)")
 
     args = parser.parse_args()
