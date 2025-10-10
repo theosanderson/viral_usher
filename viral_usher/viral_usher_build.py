@@ -738,7 +738,7 @@ def add_extra_metadata_rows(m_out, midx, metadata_header, sample_names, nextclad
                             extra_fasta_names, extra_added_cols, extra_mapped_cols, extra_metadata_rows):
     """Add metadata lines for user-provided extra fasta sequences that are in the tree (i.e. in sample_names)."""
     if not extra_fasta_names:
-        return
+        return None, None
     sample_names_set = set()
     with open(sample_names, 'r') as sn:
         for line in sn:
