@@ -1,6 +1,9 @@
 import os
+import shutil
 import sys
+import tempfile
 import tomllib
+import urllib.request
 
 
 DEFAULT_MIN_LENGTH_PROPORTION = 0.8
@@ -8,6 +11,39 @@ DEFAULT_MAX_N_PROPORTION = 0.25
 DEFAULT_MAX_PARSIMONY = 1000
 DEFAULT_MAX_BRANCH_LENGTH = 10000
 DEFAULT_DOCKER_IMAGE = "angiehinrichs/viral_usher"
+
+
+def handle_path_or_url(config_value):
+    """
+    Resolve a config value that can be either a local file path or a URL.
+    If it's a URL (starts with http:// or https://), download it to a temporary directory.
+    Return the path to use (either the original path or the downloaded file path).
+    """
+    if not config_value:
+        return config_value
+
+    if config_value.startswith('http://') or config_value.startswith('https://'):
+        print(f"Downloading {config_value}...")
+        filename = os.path.basename(config_value.split('?')[0])  # Remove query params if any
+        if not filename:
+            filename = "downloaded_file"
+
+        temp_dir = tempfile.mkdtemp()
+        temp_path = os.path.join(temp_dir, filename)
+
+        try:
+            with urllib.request.urlopen(config_value) as response:
+                with open(temp_path, 'wb') as temp_file:
+                    shutil.copyfileobj(response, temp_file)
+            print(f"Downloaded to {temp_path}")
+            return temp_path
+        except Exception as e:
+            shutil.rmtree(temp_dir)
+            print(f"Error downloading {config_value}: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # It's a local file path, return as is
+        return config_value
 
 
 def read_config(config_path):
@@ -73,6 +109,13 @@ def check_config(config, check_paths=True):
 def parse_config(config_path):
     """Read the config file and validate its contents."""
     config = read_config(config_path)
+
+    # Resolve paths that can be URLs
+    url_resolvable_keys = ['ref_fasta', 'ref_gbff', 'extra_fasta', 'extra_metadata']
+    for key in url_resolvable_keys:
+        if key in config:
+            config[key] = handle_path_or_url(config[key])
+
     check_config(config)
     return config
 
