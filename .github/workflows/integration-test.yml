@@ -1,0 +1,70 @@
+name: Integration Test
+
+on:
+  push:
+    paths:
+      - "viral_usher/**"
+      - "tests/test_data/**"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - ".github/workflows/integration-test.yml"
+  pull_request:
+    paths:
+      - "viral_usher/**"
+      - "tests/test_data/**"
+      - "Dockerfile"
+      - "pyproject.toml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build the Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        push: false
+        load: true
+        tags: angiehinrichs/viral_usher:development
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.12"
+
+    - name: Install viral_usher
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+
+    - name: Create test config with absolute paths
+      run: |
+        mkdir -p tests/test_data/output
+        cat > tests/test_data/test_config_ci.toml <<EOF
+        taxonomy_id = '12345'
+        ref_fasta = '$(pwd)/tests/test_data/ref.fa'
+        ref_gbff = '$(pwd)/tests/test_data/ref.gbff'
+        extra_fasta = '$(pwd)/tests/test_data/sequences.fa'
+        workdir = '$(pwd)/tests/test_data/output'
+        EOF
+
+    - name: Run build with test data
+      run: |
+        viral_usher build --config tests/test_data/test_config_ci.toml --docker_image angiehinrichs/viral_usher:development --no_genbank
+
+    - name: Check outputs exist
+      run: |
+        cd tests/test_data/output
+        ls -lh
+        test -f optimized.pb.gz
+        test -f viz.pb.gz
+        test -f metadata.tsv.gz
+        test -f tree.jsonl.gz
