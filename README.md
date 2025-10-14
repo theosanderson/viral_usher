@@ -91,4 +91,13 @@ pip install -e .[dev]
 
 # Run tests
 pytest
+
+# Run build with a locally modified docker image
+docker build --platform linux/amd64 -t viral_usher_test . \
+    && viral_usher build --docker_image viral_usher_test --config path/to/config.toml
+
+# Get a shell in the locally modified docker image to try out different commands
+docker run --platform linux/amd64 --rm -it -u $(id -u):$(id -g) --net=host \
+    -v $(pwd):/data \
+    viral_usher_test
 ```
