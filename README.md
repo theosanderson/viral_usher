@@ -61,6 +61,24 @@ To view the example Chikungunya virus tree in Taxonium, [click here](https://tax
 
 ---
 
+## 🛠️ Troubleshooting
+
+### MacOS Docker virtualization framework settings
+
+If your `viral_usher build ...` command fails on MacOS with this error message:
+```
+usher-sampled failed, see usher-sampled.err.log
+Failed command: usher-sampled -A -e 5 -t empty_tree.nwk -v msa.vcf.gz -o usher_sampled.pb.gz --optimization_radius 0 --batch_size_per_process 100
+docker container angiehinrichs/viral_usher:v0.9.0 failed with exit code 1
+```
+and the file `usher-sampled.err.log` ends with this error:
+```
+assertion failed [rem_idx != -1]: Unable to find existing allocation for shared memory segment to unmap
+```
+then your Docker virtualization settings might need to be changed.  In the Docker app, click on the settings icon (gear), select the "General" category in the left column, and scroll down to the Virtual Machine Options section.  Under "Choose Virtual Machine Manager (VMM)", change the selection from "Apple Virtualization Framework" to "Docker VMM".  Then try running your `viral_usher build ...` command again.  For more on this topic see [issue #24](https://github.com/AngieHinrichs/viral_usher/issues/24) .
+
+---
+
 ## 🧪 Development
 
 ```bash
