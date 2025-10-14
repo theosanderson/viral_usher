@@ -22,6 +22,9 @@ def handle_path_or_url(config_value):
     if not config_value:
         return config_value
 
+    # Convert Path objects to strings
+    config_value = str(config_value)
+
     if config_value.startswith('http://') or config_value.startswith('https://'):
         print(f"Downloading {config_value}...")
         filename = os.path.basename(config_value.split('?')[0])  # Remove query params if any
@@ -47,8 +50,9 @@ def handle_path_or_url(config_value):
 
 
 def read_config(config_path):
+    resolved_path = handle_path_or_url(config_path)
     try:
-        with open(config_path, 'rb') as f:
+        with open(resolved_path, 'rb') as f:
             config = tomllib.load(f)
     except FileNotFoundError:
         print(f"Config file '{config_path}' does not exist.", file=sys.stderr)
