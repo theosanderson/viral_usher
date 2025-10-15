@@ -17,7 +17,6 @@ from collections import namedtuple
 from . import config
 from . import ncbi_helper
 
-update_tree_input = "optimized.pb.gz"
 update_nextclade_input = "nextclade.clade.tsv"
 
 
@@ -439,9 +438,9 @@ def run_matoptimize(pb_file, vcf_file, update):
     return pb_out
 
 
-def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
+def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length, update_tree_input):
     """Run matUtils extract to filter sequences/branches and collapse tree post-matOptimize"""
-    pb_out = update_tree_input
+    pb_out = update_tree_input if update_tree_input else "optimized.pb.gz"
     sample_names_out = 'tree_samples.txt'
     start_time = start_timing(f"Running matUtils to filter (--max-parsimony {max_parsimony} --max-branch-length {max_branch_length})...")
     command = ['matUtils', 'extract', '-i', opt_unfiltered_tree,
@@ -1024,6 +1023,7 @@ def main():
     extra_fasta = config_contents.get('extra_fasta', '')
     extra_metadata = config_contents.get('extra_metadata', '')
     extra_metadata_date_column = config_contents.get('extra_metadata_date_column', '')
+    update_tree_input = config_contents.get('update_tree_input', 'optimized.pb.gz')
     species = config_contents.get('species', None)
     ncbi = ncbi_helper.NcbiHelper()
     if not species:
@@ -1068,7 +1068,7 @@ def main():
         empty_tree = make_empty_tree()
         preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
     opt_unfiltered_tree = run_matoptimize(preopt_tree, msa_vcf, args.update)
-    opt_tree, sample_names, tree_tip_count = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length)
+    opt_tree, sample_names, tree_tip_count = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length, update_tree_input)
     existing_nextclade_assignments, existing_column_count = get_existing_nextclade_assignments(args.update, starting_tree_accessions, nextclade_path)
     nextclade_assignments, nextclade_clade_columns = run_nextclade(nextclade_path, nextclade_clade_columns,
                                                                    existing_nextclade_assignments, existing_column_count,

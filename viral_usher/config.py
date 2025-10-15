@@ -115,7 +115,7 @@ def parse_config(config_path):
     config = read_config(config_path)
 
     # Resolve paths that can be URLs
-    url_resolvable_keys = ['ref_fasta', 'ref_gbff', 'extra_fasta', 'extra_metadata']
+    url_resolvable_keys = ['ref_fasta', 'ref_gbff', 'extra_fasta', 'extra_metadata', 'update_tree_input']
     for key in url_resolvable_keys:
         if key in config:
             config[key] = handle_path_or_url(config[key])
