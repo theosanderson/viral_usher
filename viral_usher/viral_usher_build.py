@@ -7,6 +7,7 @@ import json
 import lzma
 import os
 import re
+import requests
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,7 @@ from collections import namedtuple
 from . import config
 from . import ncbi_helper
 
+default_update_tree_input = "optimized.pb.gz"
 update_nextclade_input = "nextclade.clade.tsv"
 
 
@@ -68,6 +70,21 @@ def start_timing(message):
 def finish_timing(start_time):
     elapsed_time = time.perf_counter() - start_time
     print(f"... done in {elapsed_time:.1f}s")
+
+
+def download_viral_usher_tree(tree_name, output_name):
+    """Download the given tree from the viral_usher_trees GitHub repo and save it as output_name."""
+    url = f"https://github.com/AngieHinrichs/viral_usher_trees/raw/refs/heads/main/trees/{tree_name}/optimized.pb.gz"
+    start_time = start_timing(f"Downloading pre-built tree {tree_name} to {output_name}...")
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        with open(output_name, 'wb') as out_f:
+            out_f.write(response.content)
+    except requests.RequestException as e:
+        print(f"Error downloading {url}: {e}", file=sys.stderr)
+        sys.exit(1)
+    finish_timing(start_time)
 
 
 def normalize_segment(segment):
@@ -440,7 +457,7 @@ def run_matoptimize(pb_file, vcf_file, update):
 
 def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length, update_tree_input):
     """Run matUtils extract to filter sequences/branches and collapse tree post-matOptimize"""
-    pb_out = update_tree_input if update_tree_input else "optimized.pb.gz"
+    pb_out = update_tree_input if update_tree_input else default_update_tree_input
     sample_names_out = 'tree_samples.txt'
     start_time = start_timing(f"Running matUtils to filter (--max-parsimony {max_parsimony} --max-branch-length {max_branch_length})...")
     command = ['matUtils', 'extract', '-i', opt_unfiltered_tree,
@@ -1023,7 +1040,15 @@ def main():
     extra_fasta = config_contents.get('extra_fasta', '')
     extra_metadata = config_contents.get('extra_metadata', '')
     extra_metadata_date_column = config_contents.get('extra_metadata_date_column', '')
-    update_tree_input = config_contents.get('update_tree_input', 'optimized.pb.gz')
+    update_tree_input = config_contents.get('update_tree_input', default_update_tree_input)
+    viral_usher_trees_name = config_contents.get('viral_usher_trees_name', '')
+    if update_tree_input != default_update_tree_input and viral_usher_trees_name:
+        print("Error: cannot specify both update_tree_input and viral_usher_trees_name in config.", file=sys.stderr)
+        sys.exit(1)
+    do_update = args.update
+    if viral_usher_trees_name:
+        download_viral_usher_tree(viral_usher_trees_name, update_tree_input)
+        do_update = True
     species = config_contents.get('species', None)
     ncbi = ncbi_helper.NcbiHelper()
     if not species:
@@ -1037,7 +1062,7 @@ def main():
     extra_fasta_names = get_extra_fasta_names(extra_fasta)
 
     starting_tree_accessions = []
-    if (args.update):
+    if (do_update):
         # Make sure we have required inputs
         if not os.path.exists(update_tree_input):
             print(f"No existing {update_tree_input} found, cannot do update.  Run without --update to build tree from scratch.", file=sys.stderr)
@@ -1051,14 +1076,14 @@ def main():
     # Get metadata from NCBI Virus API
     ncbi_virus_metadata, acc_to_length_segment = get_genbank_metadata(ncbi, taxid, args.no_genbank)
 
-    genbank_fasta, gb_count, filtered_count = get_genbank_fasta(args.update, args.no_genbank, ncbi, taxid, starting_tree_accessions,
+    genbank_fasta, gb_count, filtered_count = get_genbank_fasta(do_update, args.no_genbank, ncbi, taxid, starting_tree_accessions,
                                                                 acc_to_length_segment, min_length, max_N_proportion, ref_segment)
-    if (args.update):
+    if (do_update):
         extra_fasta = get_new_extra_fasta(starting_tree_accessions, extra_fasta)
 
     # The core of the pipeline: align sequences, build tree, finalize metadata
     msa_vcf, aligned_count = align_sequences(ref_fasta, extra_fasta, genbank_fasta, ref_acc, min_length, max_N_proportion)
-    if args.update:
+    if do_update:
         if aligned_count == 0:
             preopt_tree = "usher_sampled.pb.gz"
             shutil.copy(update_tree_input, preopt_tree)
@@ -1067,9 +1092,9 @@ def main():
     else:
         empty_tree = make_empty_tree()
         preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
-    opt_unfiltered_tree = run_matoptimize(preopt_tree, msa_vcf, args.update)
+    opt_unfiltered_tree = run_matoptimize(preopt_tree, msa_vcf, do_update)
     opt_tree, sample_names, tree_tip_count = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length, update_tree_input)
-    existing_nextclade_assignments, existing_column_count = get_existing_nextclade_assignments(args.update, starting_tree_accessions, nextclade_path)
+    existing_nextclade_assignments, existing_column_count = get_existing_nextclade_assignments(do_update, starting_tree_accessions, nextclade_path)
     nextclade_assignments, nextclade_clade_columns = run_nextclade(nextclade_path, nextclade_clade_columns,
                                                                    existing_nextclade_assignments, existing_column_count,
                                                                    genbank_fasta, extra_fasta, ref_fasta)

@@ -5,6 +5,7 @@ import os
 import importlib.metadata
 import re
 import logging
+import requests
 from . import ncbi_helper
 from . import nextclade_helper
 from . import config
@@ -291,6 +292,44 @@ def check_write_config(config_contents, config_path):
         return False
 
 
+def search_viral_usher_trees(refseq_acc):
+    """Search the viral_usher_trees repo for a tree with refseq_acc as its reference"""
+    url = "https://github.com/AngieHinrichs/viral_usher_trees/raw/refs/heads/main/tree_metadata.tsv"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        lines = response.text.strip().split('\n')
+        for line in lines[1:]:
+            parts = line.split('\t')
+            if parts[0] == refseq_acc:
+                return parts[1]
+    except requests.RequestException as e:
+        print(f"Warning: Unable to access viral_usher_trees repository: {e}", file=sys.stderr)
+    return None
+
+
+def get_viral_usher_trees_name(refseq_acc, args_use_viral_usher_trees, is_interactive):
+    """Check if there's a pre-built tree for this RefSeq in the viral_usher_trees repo.
+    If so, ask the user if they want to use it.  Return the tree name if yes, '' otherwise."""
+    if not refseq_acc:
+        return ''
+    tree_name = search_viral_usher_trees(refseq_acc)
+    if tree_name:
+        if args_use_viral_usher_trees:
+            print(f"\nUsing pre-built tree for RefSeq {refseq_acc} from viral_usher_trees repository:\n{tree_name}")
+            return tree_name
+        elif is_interactive:
+            print(f"\nA pre-built tree using RefSeq {refseq_acc} is available at:\n{tree_name}")
+            choice = get_input("Would you like to use this tree instead of building a new one? (y/n) [y]: ") or "y"
+            if choice.lower().startswith('y'):
+                print(f"Okay, using {tree_name} as a starting tree.")
+                return tree_name
+            else:
+                print("Okay, will build tree from scratch.")
+                return ''
+    return ''
+
+
 def get_min_length_proportion(args_min_length_proportion, is_interactive):
     min_length_proportion = config.DEFAULT_MIN_LENGTH_PROPORTION
     if args_min_length_proportion:
@@ -378,7 +417,6 @@ def get_user_metadata(args_metadata, args_metadata_date_column, is_interactive):
         metadata_path = prompt_with_checker("If you have your own metadata file (TSV) whose first column matches names in the FASTA file, then enter its path", "", check_optional_file_readable)
         metadata_date_column = prompt_with_checker("If your metadata file has a column with sequence collection dates, enter its name (otherwise leave blank to look for a column named 'date')", "", lambda x: (True, None))
     return metadata_path, metadata_date_column
-
 
 
 def get_workdir(args_workdir, is_interactive):
@@ -489,6 +527,7 @@ def handle_init(args):
     # If --refseq/--ref_fasta and --workdir are given then accept defaults for other options
     is_interactive = not ((args.refseq or args.ref_fasta) and args.workdir)
 
+    viral_usher_trees_name = get_viral_usher_trees_name(refseq_id, args.use_viral_usher_trees, is_interactive)
     nextclade_path, nextclade_columns = get_nextclade_path_columns(args.nextclade_dataset, species, is_interactive)
     min_length_proportion = get_min_length_proportion(args.min_length_proportion, is_interactive)
     max_N_proportion = get_max_N_proportion(args.max_N_proportion, is_interactive)
@@ -505,6 +544,7 @@ def handle_init(args):
         "refseq_assembly": assembly_id,
         "ref_fasta": args.ref_fasta if args.ref_fasta else "",
         "ref_gbff": args.ref_gbff if args.ref_gbff else "",
+        "viral_usher_trees_name": viral_usher_trees_name,
         "species": species,
         "taxonomy_id": taxid,
         "nextclade_dataset": nextclade_path,

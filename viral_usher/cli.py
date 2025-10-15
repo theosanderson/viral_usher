@@ -33,6 +33,7 @@ def main():
     init_parser.add_argument("-c", "--config", type=str, help="Path to config file output")
     init_parser.add_argument("--ref_fasta", type=str, help="Path to local reference genome FASTA file (if not using RefSeq)")
     init_parser.add_argument("--ref_gbff", type=str, help="Path to local reference genome GenBank flat file (if not using RefSeq)")
+    init_parser.add_argument("--use_viral_usher_trees", action="store_true", help="If the viral_usher_trees repository has a pre-built tree is available for the selected RefSeq, use it as a starting tree instead of building the tree from scratch")
 
     # Build subcommand
     build_parser = subparsers.add_parser("build", help="Run the pipeline to download sequences and build a tree")
