@@ -1027,7 +1027,7 @@ def main():
     extra_metadata_date_column = config_contents.get('extra_metadata_date_column', '')
     update_tree_input = config_contents.get('update_tree_input', optimized_pb)
     # Force update mode if update_tree_input is given
-    do_update = True if update_tree_input else args.update
+    do_update = True if update_tree_input != optimized_pb else args.update
     species = config_contents.get('species', None)
     ncbi = ncbi_helper.NcbiHelper()
     if not species:
