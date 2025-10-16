@@ -18,7 +18,7 @@ from collections import namedtuple
 from . import config
 from . import ncbi_helper
 
-default_update_tree_input = "optimized.pb.gz"
+optimized_pb = "optimized.pb.gz"
 update_nextclade_input = "nextclade.clade.tsv"
 
 
@@ -455,9 +455,9 @@ def run_matoptimize(pb_file, vcf_file, update):
     return pb_out
 
 
-def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length, update_tree_input):
+def run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length):
     """Run matUtils extract to filter sequences/branches and collapse tree post-matOptimize"""
-    pb_out = update_tree_input if update_tree_input else default_update_tree_input
+    pb_out = optimized_pb
     sample_names_out = 'tree_samples.txt'
     start_time = start_timing(f"Running matUtils to filter (--max-parsimony {max_parsimony} --max-branch-length {max_branch_length})...")
     command = ['matUtils', 'extract', '-i', opt_unfiltered_tree,
@@ -1040,9 +1040,9 @@ def main():
     extra_fasta = config_contents.get('extra_fasta', '')
     extra_metadata = config_contents.get('extra_metadata', '')
     extra_metadata_date_column = config_contents.get('extra_metadata_date_column', '')
-    update_tree_input = config_contents.get('update_tree_input', default_update_tree_input)
+    update_tree_input = config_contents.get('update_tree_input', optimized_pb)
     viral_usher_trees_name = config_contents.get('viral_usher_trees_name', '')
-    if update_tree_input != default_update_tree_input and viral_usher_trees_name:
+    if update_tree_input != optimized_pb and viral_usher_trees_name:
         print("Error: cannot specify both update_tree_input and viral_usher_trees_name in config.", file=sys.stderr)
         sys.exit(1)
     do_update = args.update
@@ -1093,7 +1093,7 @@ def main():
         empty_tree = make_empty_tree()
         preopt_tree = run_usher_sampled(empty_tree, msa_vcf)
     opt_unfiltered_tree = run_matoptimize(preopt_tree, msa_vcf, do_update)
-    opt_tree, sample_names, tree_tip_count = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length, update_tree_input)
+    opt_tree, sample_names, tree_tip_count = run_matutils_filter(opt_unfiltered_tree, max_parsimony, max_branch_length)
     existing_nextclade_assignments, existing_column_count = get_existing_nextclade_assignments(do_update, starting_tree_accessions, nextclade_path)
     nextclade_assignments, nextclade_clade_columns = run_nextclade(nextclade_path, nextclade_clade_columns,
                                                                    existing_nextclade_assignments, existing_column_count,
