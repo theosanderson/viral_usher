@@ -528,6 +528,11 @@ def handle_init(args):
     is_interactive = not ((args.refseq or args.ref_fasta) and args.workdir)
 
     viral_usher_trees_name = get_viral_usher_trees_name(refseq_id, args.use_viral_usher_trees, is_interactive)
+    if viral_usher_trees_name:
+        update_tree_input = f"https://github.com/AngieHinrichs/viral_usher_trees/raw/refs/heads/main/trees/{viral_usher_trees_name}/optimized.pb.gz"
+        # Note: if/when viral_usher_trees gets rerooting, we will also need to download ref_fasta and ref_gbff
+    else:
+        update_tree_input = ""
     nextclade_path, nextclade_columns = get_nextclade_path_columns(args.nextclade_dataset, species, is_interactive)
     min_length_proportion = get_min_length_proportion(args.min_length_proportion, is_interactive)
     max_N_proportion = get_max_N_proportion(args.max_N_proportion, is_interactive)
@@ -544,7 +549,7 @@ def handle_init(args):
         "refseq_assembly": assembly_id,
         "ref_fasta": args.ref_fasta if args.ref_fasta else "",
         "ref_gbff": args.ref_gbff if args.ref_gbff else "",
-        "viral_usher_trees_name": viral_usher_trees_name,
+        "update_tree_input": update_tree_input,
         "species": species,
         "taxonomy_id": taxid,
         "nextclade_dataset": nextclade_path,

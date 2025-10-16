@@ -72,21 +72,6 @@ def finish_timing(start_time):
     print(f"... done in {elapsed_time:.1f}s")
 
 
-def download_viral_usher_tree(tree_name, output_name):
-    """Download the given tree from the viral_usher_trees GitHub repo and save it as output_name."""
-    url = f"https://github.com/AngieHinrichs/viral_usher_trees/raw/refs/heads/main/trees/{tree_name}/optimized.pb.gz"
-    start_time = start_timing(f"Downloading pre-built tree {tree_name} to {output_name}...")
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        with open(output_name, 'wb') as out_f:
-            out_f.write(response.content)
-    except requests.RequestException as e:
-        print(f"Error downloading {url}: {e}", file=sys.stderr)
-        sys.exit(1)
-    finish_timing(start_time)
-
-
 def normalize_segment(segment):
     # Many viruses have segments S (small), M (medium), and L (large).  The vast majority of records use S, M or L
     # but there are a few oddballs that spell it out or use middle instead of medium.  Change those to S/M/L.
@@ -1041,14 +1026,8 @@ def main():
     extra_metadata = config_contents.get('extra_metadata', '')
     extra_metadata_date_column = config_contents.get('extra_metadata_date_column', '')
     update_tree_input = config_contents.get('update_tree_input', optimized_pb)
-    viral_usher_trees_name = config_contents.get('viral_usher_trees_name', '')
-    if update_tree_input != optimized_pb and viral_usher_trees_name:
-        print("Error: cannot specify both update_tree_input and viral_usher_trees_name in config.", file=sys.stderr)
-        sys.exit(1)
-    do_update = args.update
-    if viral_usher_trees_name:
-        download_viral_usher_tree(viral_usher_trees_name, update_tree_input)
-        do_update = True
+    # Force update mode if update_tree_input is given
+    do_update = True if update_tree_input else args.update
     species = config_contents.get('species', None)
     ncbi = ncbi_helper.NcbiHelper()
     if not species:
