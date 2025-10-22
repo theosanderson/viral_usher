@@ -61,7 +61,9 @@ def get_docker_image(client: docker.DockerClient, args_docker_image: str):
 
 
 def maybe_copy_to_workdir(filepath, workdir):
-    """Return filepath's relative path within workdir, copying the file into workdir if necessary."""
+    """If filepath is a file not an URL, return filepath's relative path within workdir, copying the file into workdir if necessary."""
+    if filepath.startswith('http://') or filepath.startswith('https://'):
+        return filepath
     basename = os.path.basename(filepath)
     dirname = os.path.dirname(filepath)
     dirname_abs = os.path.abspath(dirname)
