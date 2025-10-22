@@ -121,7 +121,7 @@ def parse_config(config_path, resolve_url_keys=True):
             if key in config:
                 config[key] = handle_path_or_url(config[key])
 
-    check_config(config)
+    check_config(config, check_paths=resolve_url_keys)
     return config
 
 
