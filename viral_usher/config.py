@@ -110,15 +110,16 @@ def check_config(config, check_paths=True):
         raise ValueError(f"Fasta file {extra_fasta} does not exist or is not readable.")
 
 
-def parse_config(config_path):
-    """Read the config file and validate its contents."""
+def parse_config(config_path, resolve_url_keys=True):
+    """Read the config file and validate its contents.  Download URLs unless resolve_url_keys is False."""
     config = read_config(config_path)
 
-    # Resolve paths that can be URLs
-    url_resolvable_keys = ['ref_fasta', 'ref_gbff', 'extra_fasta', 'extra_metadata', 'update_tree_input']
-    for key in url_resolvable_keys:
-        if key in config:
-            config[key] = handle_path_or_url(config[key])
+    if resolve_url_keys:
+        # Resolve paths that can be URLs
+        url_resolvable_keys = ['ref_fasta', 'ref_gbff', 'extra_fasta', 'extra_metadata', 'update_tree_input']
+        for key in url_resolvable_keys:
+            if key in config:
+                config[key] = handle_path_or_url(config[key])
 
     check_config(config)
     return config

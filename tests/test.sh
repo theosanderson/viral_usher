@@ -41,6 +41,12 @@ time viral_usher build \
     -d viral_usher_test \
     -c $testdir/config.toml
 
+# Again, with --update
+time viral_usher build \
+    -d viral_usher_test \
+    -c $testdir/config.toml \
+    -u
+
 # Now build from scratch with extra_fasta (no metadata)
 rm -rf $testdir
 testdir=$(mktemp -d -t viral_usher_test.XXXXXX)
@@ -55,6 +61,12 @@ time viral_usher init \
 time viral_usher build \
     -d viral_usher_test \
     -c $testdir/config.toml
+
+# Again, with --update
+time viral_usher build \
+    -d viral_usher_test \
+    -c $testdir/config.toml \
+    -u
 
 # Build from scratch with extra_fasta and extra_metadata
 rm -rf $testdir
@@ -74,6 +86,57 @@ time viral_usher build \
 
 # TODO: make sure the generated metadata has the expected additional columns and
 # metadata rows for user-added sequences.
+
+# Again, with --update
+time viral_usher build \
+    -d viral_usher_test \
+    -c $testdir/config.toml \
+    -u
+
+# Build from scratch: Dengue type 4 with nextclade annotations, no extra fasta
+rm -rf $testdir
+testdir=$(mktemp -d -t viral_usher_test.XXXXXX)
+time viral_usher init \
+    -r NC_002640.1 \
+    -s "Dengue type 4" \
+    -t 3052464 \
+    -x community/v-gen-lab/dengue/denv4 \
+    -w $testdir \
+    -c $testdir/config.toml
+
+time viral_usher build \
+    -d viral_usher_test \
+    -c $testdir/config.toml
+
+# Again, with --update
+time viral_usher build \
+    -d viral_usher_test \
+    -c $testdir/config.toml \
+    -u
+
+# Build from viral_usher_trees: Dengue type 4 with nextclade annotations and extra fasta
+rm -rf $testdir
+
+testdir=$(mktemp -d -t viral_usher_test.XXXXXX)
+time viral_usher init \
+    -r NC_002640.1 \
+    -s "Dengue type 4" \
+    -t 3052464 \
+    -x community/v-gen-lab/dengue/denv4 \
+    --use_viral_usher_trees \
+    -f tests/test_data/denv4_extra.fasta \
+    -w $testdir \
+    -c $testdir/config.toml
+
+time viral_usher build \
+    -d viral_usher_test \
+    -c $testdir/config.toml
+
+# Again, with --update
+time viral_usher build \
+    -d viral_usher_test \
+    -c $testdir/config.toml \
+    -u
 
 rm -rf $testdir
 echo Success
