@@ -553,7 +553,7 @@ def get_extra_metadata(extra_metadata):
         return [], {}
     extra_metadata_cols = []
     extra_metadata_dict = {}
-    with open(extra_metadata, 'r') as em:
+    with open_maybe_decompress(extra_metadata) as em:
         header = em.readline().rstrip('\n').split('\t')
         extra_metadata_cols = header[1:]
         for line in em:
