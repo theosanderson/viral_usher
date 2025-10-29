@@ -100,11 +100,9 @@ def check_refseq_assembly(refseq_assembly):
 
 
 def check_config(config, check_paths=True, no_genbank=False):
-    # taxonomy_id is only required when downloading from GenBank
     if not no_genbank:
         check_taxonomy_id(config['taxonomy_id'])
     elif config.get('taxonomy_id'):
-        # If taxonomy_id is provided, validate it even in no_genbank mode
         check_taxonomy_id(config['taxonomy_id'])
     check_refseq_vs_ref(config, check_paths)
     if config.get('refseq_acc', ''):

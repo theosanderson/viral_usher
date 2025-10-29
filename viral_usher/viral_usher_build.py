@@ -1037,11 +1037,7 @@ def main():
             start_time = start_timing(f"Looking up species name for Taxonomy ID {taxid}...")
             species = ncbi.get_species_from_taxid(taxid)
             finish_timing(start_time)
-        elif not args.no_genbank:
-            print("Error: species name must be provided in config when taxonomy_id is not set", file=sys.stderr)
-            sys.exit(1)
         else:
-            # In no_genbank mode without species or taxid, use a generic name
             species = "Unknown species"
 
     ref_acc, ref_fasta, ref_gbff, ref_length, ref_segment = get_reference(config_contents, ncbi)

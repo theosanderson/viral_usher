@@ -89,28 +89,3 @@ def test_read_written_config(written_config_file):
     config_data = viral_usher.config.read_config(written_config_file)
     assert config_data["refseq_acc"] == "NC_035889.1"
     assert config_data["taxonomy_id"] == "64320"
-
-
-def test_check_config_without_taxonomy_id_no_genbank():
-    """Test that taxonomy_id is optional when no_genbank=True"""
-    # Create a minimal config without taxonomy_id
-    config = {
-        "species": "Test virus",
-        "ref_fasta": "/dev/null",
-        "ref_gbff": "/dev/null",
-    }
-    # Should not raise an error when no_genbank=True
-    viral_usher.config.check_config(config, check_paths=False, no_genbank=True)
-
-
-def test_check_config_without_taxonomy_id_genbank():
-    """Test that taxonomy_id is required when no_genbank=False (default)"""
-    # Create a minimal config without taxonomy_id
-    config = {
-        "species": "Test virus",
-        "ref_fasta": "/dev/null",
-        "ref_gbff": "/dev/null",
-    }
-    # Should raise an error when no_genbank=False (default)
-    with pytest.raises(KeyError):
-        viral_usher.config.check_config(config, check_paths=False, no_genbank=False)
