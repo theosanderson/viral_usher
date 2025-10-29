@@ -1014,8 +1014,8 @@ def main():
     args = parser.parse_args()
 
     print(f"Running pipeline with config file: {args.config}")
-    config_contents = config.parse_config(args.config)
-    taxid = config_contents['taxonomy_id']
+    config_contents = config.parse_config(args.config, no_genbank=args.no_genbank)
+    taxid = config_contents.get('taxonomy_id', None)
     nextclade_path = config_contents.get('nextclade_dataset', '')
     nextclade_clade_columns = config_contents.get('nextclade_clade_columns', 'clade')
     min_length_proportion = float(config_contents.get('min_length_proportion', config.DEFAULT_MIN_LENGTH_PROPORTION))
@@ -1033,9 +1033,16 @@ def main():
     species = config_contents.get('species', None)
     ncbi = ncbi_helper.NcbiHelper()
     if not species:
-        start_time = start_timing(f"Looking up species name for Taxonomy ID {taxid}...")
-        species = ncbi.get_species_from_taxid(taxid)
-        finish_timing(start_time)
+        if taxid:
+            start_time = start_timing(f"Looking up species name for Taxonomy ID {taxid}...")
+            species = ncbi.get_species_from_taxid(taxid)
+            finish_timing(start_time)
+        elif not args.no_genbank:
+            print("Error: species name must be provided in config when taxonomy_id is not set", file=sys.stderr)
+            sys.exit(1)
+        else:
+            # In no_genbank mode without species or taxid, use a generic name
+            species = "Unknown species"
 
     ref_acc, ref_fasta, ref_gbff, ref_length, ref_segment = get_reference(config_contents, ncbi)
     min_length = int(ref_length * min_length_proportion)

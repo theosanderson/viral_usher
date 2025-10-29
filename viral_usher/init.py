@@ -506,15 +506,20 @@ def handle_init(args):
             print(f"{error_message}\nPlease try again with a different file for --ref_gbff.", file=sys.stderr)
             sys.exit(1)
         taxid = args.taxonomy_id
-        if not taxid:
-            print("Error: when using --ref_fasta and --ref_gbff, -t/--taxonomy_id must be provided", file=sys.stderr)
-            sys.exit(1)
         species = args.species
+        if not taxid and not species:
+            print("Error: when using --ref_fasta and --ref_gbff, either -t/--taxonomy_id or -s/--species must be provided", file=sys.stderr)
+            sys.exit(1)
         if not species:
-            species = ncbi.get_species_from_taxid(taxid)
-            if not species:
-                print(f"Could not find species for Taxonomy ID {taxid}.  Please provide a species name with --species.", file=sys.stderr)
-                sys.exit(1)
+            if taxid:
+                species = ncbi.get_species_from_taxid(taxid)
+                if not species:
+                    print(f"Could not find species for Taxonomy ID {taxid}.  Please provide a species name with --species.", file=sys.stderr)
+                    sys.exit(1)
+        if not taxid and species:
+            # taxonomy_id is optional when using --ref_fasta/--ref_gbff if --species is provided
+            # This is useful for --no-genbank mode where taxonomy_id isn't needed
+            taxid = ""  # Set to empty string for config file
     else:
         if args.taxonomy_id:
             species, taxid, refseq_id, assembly_id = lookup_refseq(ncbi, args.species, [], args.taxonomy_id)
@@ -551,7 +556,6 @@ def handle_init(args):
         "ref_gbff": args.ref_gbff if args.ref_gbff else "",
         "update_tree_input": update_tree_input,
         "species": species,
-        "taxonomy_id": taxid,
         "nextclade_dataset": nextclade_path,
         "nextclade_clade_columns": nextclade_columns,
         "min_length_proportion": min_length_proportion,
@@ -563,6 +567,9 @@ def handle_init(args):
         "extra_metadata_date_column": metadata_date_column,
         "workdir": os.path.abspath(workdir),
     }
+    # Only include taxonomy_id if it's not empty (it's optional for --no-genbank mode)
+    if taxid:
+        config_contents["taxonomy_id"] = taxid
     config_path = make_config(config_contents, workdir, refseq_id, taxid, args.config, is_interactive)
 
     print(f"\nReady to roll!  Next, try running 'viral_usher build --config {config_path}'\n")
