@@ -99,8 +99,11 @@ def check_refseq_assembly(refseq_assembly):
         raise ValueError("RefSeq assembly must start with 'GCA_' or 'GCF_'.")
 
 
-def check_config(config, check_paths=True):
-    check_taxonomy_id(config['taxonomy_id'])
+def check_config(config, check_paths=True, no_genbank=False):
+    if not no_genbank:
+        check_taxonomy_id(config['taxonomy_id'])
+    elif config.get('taxonomy_id'):
+        check_taxonomy_id(config['taxonomy_id'])
     check_refseq_vs_ref(config, check_paths)
     if config.get('refseq_acc', ''):
         check_refseq_acc(config['refseq_acc'])
@@ -110,7 +113,7 @@ def check_config(config, check_paths=True):
         raise ValueError(f"Fasta file {extra_fasta} does not exist or is not readable.")
 
 
-def parse_config(config_path, resolve_url_keys=True):
+def parse_config(config_path, resolve_url_keys=True, no_genbank=False):
     """Read the config file and validate its contents.  Download URLs unless resolve_url_keys is False."""
     config = read_config(config_path)
 
@@ -121,7 +124,7 @@ def parse_config(config_path, resolve_url_keys=True):
             if key in config:
                 config[key] = handle_path_or_url(config[key])
 
-    check_config(config, check_paths=resolve_url_keys)
+    check_config(config, check_paths=resolve_url_keys, no_genbank=no_genbank)
     return config
 
 
@@ -133,6 +136,7 @@ def write_config(config, config_path, check_paths=True):
             ref_desc = f"RefSeq {config['refseq_acc']}"
         else:
             ref_desc = f"reference genome {config['ref_fasta']}"
-        print(f"# viral_usher config for {ref_desc}, taxonomy ID {config['taxonomy_id']}\n", file=f)
+        taxid_desc = f", taxonomy ID {config['taxonomy_id']}" if config.get('taxonomy_id') else ""
+        print(f"# viral_usher config for {ref_desc}{taxid_desc}\n", file=f)
         for key in config:
             print(f"{key} = '{config[key]}'", file=f)

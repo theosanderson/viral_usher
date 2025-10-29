@@ -174,7 +174,7 @@ def handle_build(args):
     print(f"Running pipeline with config file: {args.config}")
     try:
         # Don't download URLs to local temp files here; let the docker container download & use them
-        config_contents = config.parse_config(args.config, resolve_url_keys=False)
+        config_contents = config.parse_config(args.config, resolve_url_keys=False, no_genbank=args.no_genbank)
     except (FileNotFoundError, PermissionError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
