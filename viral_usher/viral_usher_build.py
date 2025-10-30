@@ -7,7 +7,6 @@ import json
 import lzma
 import os
 import re
-import requests
 import shutil
 import subprocess
 import sys
@@ -883,7 +882,7 @@ def get_header(tsv_in):
     return header
 
 
-def make_taxonium_config(date_min, date_max, nextclade_clade_columns, extra_fasta_names, no_genbank, extra_added_cols,
+def make_taxonium_config(date_min, date_max, nextclade_clade_columns, got_extra_fasta, no_genbank, extra_added_cols,
                          extra_mapped_cols):
     """Make a config file with a color gradient from date_min to date_max."""
     config_out = "taxonium_config.json"
@@ -895,7 +894,7 @@ def make_taxonium_config(date_min, date_max, nextclade_clade_columns, extra_fast
             color_by_options.append("meta_num_date")
     else:
         color_by_options = ["meta_country", "meta_location", "meta_num_date", "meta_host", "meta_serotype"]
-        if extra_fasta_names is not None:
+        if got_extra_fasta is not None:
             color_by_options.append("meta_source")
     if nextclade_clade_columns:
         color_by_options += ["meta_" + col for col in get_nextclade_column_list(nextclade_clade_columns)]
@@ -911,22 +910,104 @@ def make_taxonium_config(date_min, date_max, nextclade_clade_columns, extra_fast
     return config_out
 
 
+def make_taxonium_overlay_html(config_contents, ref_acc, no_genbank, got_extra_fasta):
+    """Write a simple HTML file to appear when the user clicks on the info icon in Taxonium."""
+    html_out = "taxonium_overlay.html"
+    # As of writing this, taxonium strips <a> links, so when a URL is really important, include it as text.
+    html = """
+<h2 class="font-bold">About Taxonium</h2>
+<p>
+  Taxonium is a web application for exploring phylogenetic trees. Find out more at the
+  Github repository (https://github.com/theosanderson/taxonium)
+  or
+  read the documentation (https://docs.taxonium.org).
+</p>
+
+<h2 class="font-bold">About the tree</h2>
+<p>
+  This tree was constructed by the
+  <a href="https://github.com/AngieHinrichs/viral_usher" target=_blank>viral_usher</a>
+  tool developed by the
+  <a href="https://pathogengenomics.ucsc.edu/" target=_blank>Pathogen Genomics Group</a>
+  at the University of California Santa Cruz (UCSC) Genomics Institute.
+"""
+    if no_genbank:
+        html += """
+  viral_usher (in this configuration) uses only user-provided sequences,
+"""
+    else:
+        html += """
+  viral_usher downloads sequences from
+  <a href="https://www.ncbi.nlm.nih.gov/genbank/" target=_blank>GenBank</a>
+  (i.e. the INSDC databases),
+"""
+        if got_extra_fasta:
+            html += """
+  adds user-provided sequences,
+"""
+    refseq_acc = config_contents.get('refseq_acc', '')
+    if refseq_acc:
+        html += f"""
+  aligns them to the <a href="https://www.ncbi.nlm.nih.gov/refseq/" target=_blank>RefSeq</a> reference sequence
+  (https://www.ncbi.nlm.nih.gov/nuccore/{refseq_acc})
+"""
+    else:
+        html += f"""
+  aligns them to the provided reference sequence ({ref_acc})
+"""
+    html += """
+  using <a href="https://docs.nextstrain.org/projects/nextclade/en/stable/user/nextclade-cli/index.html" target=_blank>nextclade</a>,
+  and runs <a href="https://usher-wiki.readthedocs.io/en/latest/" target=_blank>UShER</a>
+  to infer the tree structure and
+  <a href="https://usher-wiki.readthedocs.io/en/latest/matOptimize.html" target=_blank>matOptimize</a>
+  to improve it under maximum parsimony.
+</p>
+
+<h2 class="font-bold">Citations</h2>
+<p>
+  If you use Taxonium in your research, please cite:
+  <br>
+  Theo Sanderson (2022)
+  <span class="font-semibold">Taxonium, a web-based tool for exploring large phylogenetic trees</span>
+  <i>eLife</i> 11:e82392.
+  <br>
+  <a href="https://doi.org/10.7554/eLife.82392" target=_blank>https://doi.org/10.7554/eLife.82392</a>
+</p>
+<p>
+  If you use the tree in your research, please cite:
+  <br>
+  Jakob McBroome et al. (2021)
+  <span class="font-semibold">A Daily-Updated Database and Tools for Comprehensive SARS-CoV-2 Mutation-Annotated Trees</span>
+  <i>Mol Biol Evol</i> 38(12):5819-5824.
+  <br>
+  <a href="https://doi.org/10.1093/molbev/msab264" target=_blank>https://doi.org/10.1093/molbev/msab264</a>
+</p>
+"""
+    with open(html_out, 'w') as f:
+        f.write(html)
+    return html_out
+
+
 def usher_to_taxonium(pb_in, metadata_in, ref_gbff, tip_count, species, ref_acc, date_min, date_max,
-                      nextclade_clade_columns, extra_fasta_names, no_genbank, extra_added_cols, extra_mapped_cols):
+                      nextclade_clade_columns, no_genbank, extra_added_cols, extra_mapped_cols, config_contents):
     jsonl_out = "tree.jsonl.gz"
     start_time = start_timing(f"Running usher_to_taxonium to make {jsonl_out}...")
     columns = ','.join(get_header(metadata_in))
     title = f"{tip_count} {species} sequences from GenBank aligned to {ref_acc}"
-    config = make_taxonium_config(date_min, date_max, nextclade_clade_columns, extra_fasta_names, no_genbank,
+    got_extra_fasta = bool(config_contents.get('extra_fasta', ''))
+    config = make_taxonium_config(date_min, date_max, nextclade_clade_columns, got_extra_fasta, no_genbank,
                                   extra_added_cols, extra_mapped_cols)
+    overlay_html = make_taxonium_overlay_html(config_contents, ref_acc, no_genbank, got_extra_fasta)
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
                '--columns', columns, '--title', title, '--config_json', config,
+               '--overlay_html', overlay_html,
                '--genbank', ref_gbff, '--output', jsonl_out]
     if not run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log', fail_ok=True):
         finish_timing(start_time)
         start_time = start_timing("usher_to_taxonium failed with --genbank, trying again without --genbank...")
         command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
                    '--columns', columns, '--title', title, '--config_json', config,
+                   '--overlay_html', overlay_html,
                    '--output', jsonl_out]
         run_command(command, stdout_filename='utt.out.log', stderr_filename='utt.err.log')
     finish_timing(start_time)
@@ -1089,7 +1170,7 @@ def main():
     dump_newick(viz_tree)
     write_output_stats(ref_acc, ref_length, gb_count, filtered_count, aligned_count, tree_tip_count)
     usher_to_taxonium(viz_tree, metadata_tsv, ref_gbff, tree_tip_count, species, ref_acc, date_min, date_max,
-                      nextclade_clade_columns, extra_fasta_names, args.no_genbank, extra_added_cols, extra_mapped_cols)
+                      nextclade_clade_columns, args.no_genbank, extra_added_cols, extra_mapped_cols, config_contents)
 
 
 if __name__ == "__main__":
