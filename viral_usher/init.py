@@ -561,6 +561,7 @@ def handle_init(args):
         "extra_fasta": fasta,
         "extra_metadata": metadata,
         "extra_metadata_date_column": metadata_date_column,
+        "taxonium_overlay_html": args.taxonium_overlay_html if args.taxonium_overlay_html else "",
         "workdir": os.path.abspath(workdir),
     }
     config_path = make_config(config_contents, workdir, refseq_id, taxid, args.config, is_interactive)

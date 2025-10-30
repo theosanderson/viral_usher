@@ -114,10 +114,9 @@ def localize_config(args_config, config_contents):
     workdir = config_contents['workdir']
     # If any user-provided files are given, make sure they will be available in workdir and that
     # the config used by the docker image script uses their relative paths in workdir.
-    config_changed = localize_file(config_contents, 'extra_fasta', workdir)
-    config_changed |= localize_file(config_contents, 'extra_metadata', workdir)
-    config_changed |= localize_file(config_contents, 'ref_fasta', workdir)
-    config_changed |= localize_file(config_contents, 'ref_gbff', workdir)
+    config_changed = False
+    for local_file_setting in ['extra_fasta', 'extra_metadata', 'ref_fasta', 'ref_gbff', 'taxonium_overlay_html']:
+        config_changed |= localize_file(config_contents, local_file_setting, workdir)
     if config_changed:
         config_rel = rewrite_config(config_contents, workdir)
     else:

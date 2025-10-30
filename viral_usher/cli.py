@@ -34,6 +34,7 @@ def main():
     init_parser.add_argument("--ref_fasta", type=str, help="Path to local reference genome FASTA file (if not using RefSeq)")
     init_parser.add_argument("--ref_gbff", type=str, help="Path to local reference genome GenBank flat file (if not using RefSeq)")
     init_parser.add_argument("--use_viral_usher_trees", action="store_true", help="If the viral_usher_trees repository has a pre-built tree is available for the selected RefSeq, use it as a starting tree instead of building the tree from scratch")
+    init_parser.add_argument("--taxonium_overlay_html", type=str, help="Path to HTML file to use as Taxonium overlay (instead of auto-generated file)")
 
     # Build subcommand
     build_parser = subparsers.add_parser("build", help="Run the pipeline to download sequences and build a tree")

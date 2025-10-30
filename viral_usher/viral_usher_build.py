@@ -997,7 +997,9 @@ def usher_to_taxonium(pb_in, metadata_in, ref_gbff, tip_count, species, ref_acc,
     got_extra_fasta = bool(config_contents.get('extra_fasta', ''))
     config = make_taxonium_config(date_min, date_max, nextclade_clade_columns, got_extra_fasta, no_genbank,
                                   extra_added_cols, extra_mapped_cols)
-    overlay_html = make_taxonium_overlay_html(config_contents, ref_acc, no_genbank, got_extra_fasta)
+    overlay_html = config_contents.get('taxonium_overlay_html', '')
+    if not overlay_html:
+        overlay_html = make_taxonium_overlay_html(config_contents, ref_acc, no_genbank, got_extra_fasta)
     command = ['usher_to_taxonium', '--input', pb_in, '--metadata', metadata_in,
                '--columns', columns, '--title', title, '--config_json', config,
                '--overlay_html', overlay_html,
