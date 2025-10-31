@@ -128,9 +128,9 @@ def parse_config(config_path, resolve_url_keys=True, no_genbank=False):
     return config
 
 
-def write_config(config, config_path, check_paths=True):
+def write_config(config, config_path, check_paths=True, no_genbank=False):
     """Write a config TOML file to the specified path."""
-    check_config(config, check_paths)
+    check_config(config, check_paths, no_genbank)
     with open(config_path, 'w') as f:
         if config.get('refseq_acc'):
             ref_desc = f"RefSeq {config['refseq_acc']}"

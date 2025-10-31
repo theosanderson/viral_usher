@@ -49,7 +49,6 @@ jobs:
       run: |
         mkdir -p tests/test_data/output
         cat > tests/test_data/test_config_ci.toml <<EOF
-        taxonomy_id = '12345'
         ref_fasta = 'https://raw.githubusercontent.com/AngieHinrichs/viral_usher/refs/heads/main/tests/test_data/ref.fa'
         ref_gbff = '$(pwd)/tests/test_data/ref.gbff'
         extra_fasta = '$(pwd)/tests/test_data/sequences.fa'

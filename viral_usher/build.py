@@ -86,12 +86,12 @@ def maybe_copy_to_workdir(filepath, workdir):
             return basename
 
 
-def rewrite_config(config_contents, workdir):
+def rewrite_config(config_contents, workdir, no_genbank):
     """Make a new timestamped config file in workdir that contains the given config settings"""
     now = datetime.datetime.now()
     new_name = 'local_config.' + now.strftime("%Y-%m-%d_%H-%M-%S") + '.toml'
     new_path = workdir + '/' + new_name
-    config.write_config(config_contents, new_path, False)
+    config.write_config(config_contents, new_path, check_paths=False, no_genbank=no_genbank)
     return new_name
 
 
@@ -107,7 +107,7 @@ def localize_file(config_contents, key, workdir):
     return False
 
 
-def localize_config(args_config, config_contents):
+def localize_config(args_config, config_contents, no_genbank):
     """When running in docker, only the workdir will be available (as the current directory).
     So absolute paths in the config need to be converted to relative paths, and if input files
     are not already in the workdir, then they need to be copied there."""
@@ -118,7 +118,7 @@ def localize_config(args_config, config_contents):
     for local_file_setting in ['extra_fasta', 'extra_metadata', 'ref_fasta', 'ref_gbff', 'taxonium_overlay_html']:
         config_changed |= localize_file(config_contents, local_file_setting, workdir)
     if config_changed:
-        config_rel = rewrite_config(config_contents, workdir)
+        config_rel = rewrite_config(config_contents, workdir, no_genbank)
     else:
         config_rel = maybe_copy_to_workdir(args_config, workdir)
     return config_rel
@@ -177,7 +177,7 @@ def handle_build(args):
     except (FileNotFoundError, PermissionError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    config_rel = localize_config(args.config, config_contents)
+    config_rel = localize_config(args.config, config_contents, args.no_genbank)
     workdir = config_contents['workdir']
     run_in_docker(workdir, config_rel, args.docker_image, args.update, args.no_genbank)
     if os.path.exists(f"{workdir}/tree.jsonl.gz"):
