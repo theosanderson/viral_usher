@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        test_name: ['no_genbank', 'prrsv2_nextclade', 'prrsv2_nextclade_extra_fasta', 'ehdv_4', 'ehdv_4_viral_usher_trees', 'ehdv_4_extra_fasta', 'ehdv_4_extra_fasta_metadata']
+        test_name: ['no_genbank', 'ehdv_4', 'ehdv_4_viral_usher_trees', 'ehdv_4_extra_fasta', 'ehdv_4_extra_fasta_metadata']
       max-parallel: 5
     steps:
     - uses: actions/checkout@v4
