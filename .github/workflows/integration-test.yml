@@ -16,7 +16,7 @@ on:
       - "pyproject.toml"
 
 jobs:
-  test:
+  setup:
     runs-on: ubuntu-latest
 
     steps:
@@ -45,25 +45,16 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e .
 
-    - name: Create test config with absolute paths
+  test:
+    runs-on: ubuntu-latest
+    needs: setup
+    strategy:
+      matrix:
+        test_name: ['no_genbank', 'prrsv2_nextclade', 'prrsv2_nextclade_extra_fasta', 'ehdv_4', 'ehdv_4_viral_usher_trees', 'ehdv_4_extra_fasta', 'ehdv_4_extra_fasta_metadata']
+      max-parallel: 5
+    steps:
+    - name: Run test script
       run: |
         mkdir -p tests/test_data/output
-        cat > tests/test_data/test_config_ci.toml <<EOF
-        ref_fasta = 'https://raw.githubusercontent.com/AngieHinrichs/viral_usher/refs/heads/main/tests/test_data/ref.fa'
-        ref_gbff = '$(pwd)/tests/test_data/ref.gbff'
-        extra_fasta = '$(pwd)/tests/test_data/sequences.fa'
-        workdir = '$(pwd)/tests/test_data/output'
-        EOF
-
-    - name: Run build with test data
-      run: |
-        viral_usher build --config tests/test_data/test_config_ci.toml --docker_image angiehinrichs/viral_usher:development --no_genbank
-
-    - name: Check outputs exist
-      run: |
-        cd tests/test_data/output
-        ls -lh
-        test -f optimized.pb.gz
-        test -f viz.pb.gz
-        test -f metadata.tsv.gz
-        test -f tree.jsonl.gz
+        bash tests/test_${{ matrix.test_name }}.sh tests/test_data/output
+        rm -rf tests/test_data/output
