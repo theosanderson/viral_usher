@@ -10,7 +10,7 @@ DEFAULT_MIN_LENGTH_PROPORTION = 0.8
 DEFAULT_MAX_N_PROPORTION = 0.25
 DEFAULT_MAX_PARSIMONY = 1000
 DEFAULT_MAX_BRANCH_LENGTH = 10000
-DEFAULT_DOCKER_IMAGE = "angiehinrichs/viral_usher"
+DEFAULT_DOCKER_IMAGE = "ghcr.io/theosanderson/viral_usher"
 
 
 def handle_path_or_url(config_value):

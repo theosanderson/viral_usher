@@ -4,6 +4,7 @@ set -beEu -o pipefail
 workdir=$1
 
 testdir=$(realpath $(dirname "${BASH_SOURCE[0]}"))
+docker_image=${VIRAL_USHER_DOCKER_IMAGE:-ghcr.io/theosanderson/viral_usher:development}
 
 mkdir -p $workdir
 workdir=$(realpath $workdir)
@@ -18,7 +19,7 @@ workdir = '$workdir'
 EOF
 
 # Run build with test data
-viral_usher build --config $config --docker_image angiehinrichs/viral_usher:development --no_genbank
+viral_usher build --config $config --docker_image $docker_image --no_genbank
 
 # Check outputs exist
 cd $workdir

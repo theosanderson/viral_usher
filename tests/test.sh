@@ -4,7 +4,8 @@ set -beEu -o pipefail
 
 cd ~/github/viral_usher
 # Build a local docker image
-time docker build --platform linux/amd64 -t angiehinrichs/viral_usher:development .
+export VIRAL_USHER_DOCKER_IMAGE=ghcr.io/theosanderson/viral_usher:development
+time docker build --platform linux/amd64 -t $VIRAL_USHER_DOCKER_IMAGE .
 
 function run_test {
     workdir=$(mktemp -d -t viral_usher_test.XXXXXX)

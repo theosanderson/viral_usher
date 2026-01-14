@@ -5,6 +5,7 @@ set -beEu -o pipefail
 workdir=$1
 
 testdir=$(realpath $(dirname "${BASH_SOURCE[0]}"))
+docker_image=${VIRAL_USHER_DOCKER_IMAGE:-ghcr.io/theosanderson/viral_usher:development}
 
 mkdir -p $workdir
 workdir=$(realpath $workdir)
@@ -17,12 +18,12 @@ time viral_usher init \
     -c $workdir/config.toml
 
 time viral_usher build \
-    -d angiehinrichs/viral_usher:development \
+    -d $docker_image \
     -c $workdir/config.toml
 
 # Now run build on the same config, but with --update
 time viral_usher build \
-    -d angiehinrichs/viral_usher:development \
+    -d $docker_image \
     -c $workdir/config.toml \
     -u
 

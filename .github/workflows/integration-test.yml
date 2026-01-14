@@ -34,7 +34,7 @@ jobs:
         context: .
         push: false
         load: true
-        tags: angiehinrichs/viral_usher:development
+        tags: ghcr.io/${{ github.repository_owner }}/viral_usher:development
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
@@ -49,6 +49,8 @@ jobs:
         pip install -e .
 
     - name: Run test script
+      env:
+        VIRAL_USHER_DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/viral_usher:development
       run: |
         mkdir -p tests/test_data/output
         bash tests/test_${{ matrix.test_name }}.sh tests/test_data/output
